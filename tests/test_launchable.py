@@ -45,6 +45,14 @@ class LaunchableTests(unittest.TestCase):
         self.assertLess(cuda_smoke, jupyter_container)
         self.assertIn("torch.ones(1, device=device)", setup)
 
+    def test_persistent_storage_can_use_a_large_vm_volume(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")
+        self.assertIn('DATA_ROOT="${NEMOTRON_DATA_ROOT:-}"', setup)
+        self.assertIn('${NEMOTRON_STORAGE_DIR:-${DATA_ROOT}/storage}', setup)
+        self.assertIn('${NEMOTRON_HF_CACHE_DIR:-${DATA_ROOT}/huggingface}', setup)
+        self.assertIn("name: NEMOTRON_DATA_ROOT", manifest)
+
 
 if __name__ == "__main__":
     unittest.main()

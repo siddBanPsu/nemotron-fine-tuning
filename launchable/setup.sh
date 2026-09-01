@@ -13,8 +13,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_REPOSITORY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BOOTSTRAP_REPOSITORY_DIR="${HOME}/nemotron-fine-tuning-launchable"
 REPOSITORY_DIR=""
-STORAGE_DIR="${HOME}/nemotron-35-ft-storage"
-HF_CACHE_DIR="${HOME}/.cache/huggingface"
+DATA_ROOT="${NEMOTRON_DATA_ROOT:-}"
+if [ -n "${DATA_ROOT}" ]; then
+  STORAGE_DIR="${NEMOTRON_STORAGE_DIR:-${DATA_ROOT}/storage}"
+  HF_CACHE_DIR="${NEMOTRON_HF_CACHE_DIR:-${DATA_ROOT}/huggingface}"
+else
+  STORAGE_DIR="${NEMOTRON_STORAGE_DIR:-${HOME}/nemotron-35-ft-storage}"
+  HF_CACHE_DIR="${NEMOTRON_HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
+fi
+
+for PERSISTENT_PATH in "${STORAGE_DIR}" "${HF_CACHE_DIR}"; do
+  case "${PERSISTENT_PATH}" in
+    /*) ;;
+    *)
+      echo "Persistent storage paths must be absolute; received '${PERSISTENT_PATH}'." >&2
+      echo "Set NEMOTRON_DATA_ROOT to an absolute path on the large VM data volume." >&2
+      exit 1
+      ;;
+  esac
+done
 
 case "${PREFETCH_MODEL}" in
   0|1) ;;
@@ -140,7 +157,14 @@ echo "[2/7] Resolving the versioned repository"
 resolve_repository
 
 echo "[3/7] Preparing persistent model/checkpoint storage"
-mkdir -p "${STORAGE_DIR}" "${HF_CACHE_DIR}"
+if ! mkdir -p "${STORAGE_DIR}" "${HF_CACHE_DIR}"; then
+  echo "Could not create persistent storage. The selected filesystem may be full." >&2
+  echo "Set NEMOTRON_DATA_ROOT to an absolute path on a volume with roughly 300 GB available." >&2
+  exit 1
+fi
+echo "Checkpoint storage: ${STORAGE_DIR}"
+echo "Hugging Face cache: ${HF_CACHE_DIR}"
+df -h "${STORAGE_DIR}" "${HF_CACHE_DIR}" | awk 'NR == 1 || !seen[$1]++'
 
 echo "[4/7] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"

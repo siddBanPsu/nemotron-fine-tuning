@@ -68,6 +68,37 @@ and checkpoints outside the container, pins the NVIDIA Megatron-Bridge source
 used to construct the notebooks, optionally performs the one-time checkpoint
 conversion, and exposes only Jupyter through Brev's authenticated Secure Link.
 
+## Running the same setup on a standalone VM
+
+The host `.venv` is intentionally API-only. Do not run `uv pip install torch`
+there: it duplicates the large CUDA/NeMo dependency stack and can exhaust the
+VM home filesystem. Use the pinned container for Notebooks 02–03.
+
+When the VM has a large mounted data disk, route model weights and checkpoints
+to it with one setting (replace the example path with the real absolute mount):
+
+```bash
+df -hT "$HOME" /var/lib/docker /path/to/large-volume
+export NEMOTRON_DATA_ROOT=/path/to/large-volume/nemotron-fine-tuning
+export NEMOTRON_PREFETCH_MODEL=0
+bash launchable/setup.sh
+```
+
+Start with prefetch disabled to verify the container and Jupyter path. Set
+`NEMOTRON_PREFETCH_MODEL=1` on the next run when the data volume and Docker data
+root have enough free space. The setup prints both selected persistent paths
+and their filesystem capacity before pulling the container. For a remote VM,
+keep port 8889 bound to loopback and access it through SSH forwarding:
+
+```bash
+ssh -L 8889:127.0.0.1:8889 USER@VM_HOST
+```
+
+The training code already uses the NeMo Megatron-Bridge SDK. Notebook 01 alone
+uses a hosted API so local Lightning fine-tuning can be compared with hosted
+Lightning and Ultra without serving those large baseline models on the
+single-GPU VM.
+
 ## Rehearsal gate
 
 Local structure checks do not prove API or GPU execution. Before a workshop,

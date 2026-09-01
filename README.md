@@ -201,19 +201,45 @@ Megatron-Bridge recipe and Python/PyTorch stack.
 
 ## Run without Brev
 
-Use a compatible Linux x86_64 NVIDIA GPU host with Docker, NVIDIA Container
-Toolkit, enough RAM/disk, and the same NeMo 26.08 container. From the repository
-root, the Launchable's container command is the reference. A convenient local
-equivalent is:
+Use a compatible Linux NVIDIA GPU host with Docker, NVIDIA Container Toolkit,
+enough RAM/disk, and the same NeMo 26.08 container. The intended workshop target
+is Linux x86_64; an ARM SBSA host must independently pass
+the image pull, CUDA smoke test, recipe import, and target-GPU rehearsal. From
+the repository root, the Launchable's container command is the reference.
+
+Do **not** install `torch`, CUDA libraries, NeMo, or Megatron-Bridge into the
+lightweight host `.venv`. That environment is only for Notebook 01. The GPU
+notebooks run in the pinned container, which already supplies the matched
+PyTorch, CUDA, Transformer Engine, Megatron-Core, and Megatron-Bridge stack.
+
+On a VM with a separate large data volume, point all model and checkpoint
+storage at it before setup. Replace `/path/to/large-volume` with an existing
+absolute mount path:
 
 ```bash
+df -hT "$HOME" /var/lib/docker /path/to/large-volume
+export NEMOTRON_DATA_ROOT=/path/to/large-volume/nemotron-fine-tuning
 NEMOTRON_PREFETCH_MODEL=1 bash launchable/setup.sh
 ```
+
+`NEMOTRON_DATA_ROOT` places checkpoints under `$NEMOTRON_DATA_ROOT/storage`
+and the Hugging Face cache under `$NEMOTRON_DATA_ROOT/huggingface`. Set
+`NEMOTRON_STORAGE_DIR` or `NEMOTRON_HF_CACHE_DIR` only when those two locations
+must be overridden separately. Docker's own image layers remain under its
+configured data root, commonly `/var/lib/docker`, which also needs enough free
+space.
 
 Open `http://localhost:8889` only through authenticated SSH forwarding or a
 trusted local interface. The setup disables Jupyter's own token because Brev's
 Secure Link supplies the access boundary; do not expose host port 8889 or
 container port 8888 publicly.
+
+This is already an SDK-based training lab: `scripts/train_peft.py` and
+`scripts/train_full.py` call the NeMo Megatron-Bridge Python training APIs. The
+hosted NVIDIA API in Notebook 01 is an optional baseline/comparator, not the
+training runtime and not a dependency of Notebooks 02–04. Replacing it removes
+the hosted Lightning/Ultra comparison; it does not simplify the local training
+stack.
 
 ## Expected workshop flow
 

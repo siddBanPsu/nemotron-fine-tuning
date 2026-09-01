@@ -66,6 +66,12 @@ class NotebookTests(unittest.TestCase):
         self.assertIn("peft_vs_cloud_targets.json", peft_text)
         self.assertIn("tuned Lightning is better", peft_text)
 
+    def test_gpu_notebooks_require_the_container_jupyter(self):
+        for name in ("02_local_bf16_baseline.ipynb", "03_peft_lora.ipynb"):
+            text = (ROOT / "notebooks" / name).read_text(encoding="utf-8")
+            self.assertIn("host port **8889**", text)
+            self.assertIn("print('Python:', sys.executable)", text)
+
 
 if __name__ == "__main__":
     unittest.main()

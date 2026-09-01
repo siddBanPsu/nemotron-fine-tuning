@@ -186,6 +186,11 @@ rather than third-party widgets. The prompt is cleared after connection and the
 key is never written to evaluation artifacts. The public Hugging Face model and
 dataset usually require no secret.
 
+Notebook 01 can use the repository's lightweight host `.venv`. Notebooks 02–03
+must use the Python kernel served from the NeMo container through the Brev
+Secure Link on host port 8889. Host-managed Jupyter on port 8888 does not carry
+the pinned PyTorch/CUDA/Megatron training stack.
+
 The preflight deliberately exits before pulling the large container if
 `nvidia-smi` reports a driver older than 580.65.06. R580 through R609 use CUDA
 13.x minor-version compatibility, so setup performs a real PyTorch CUDA tensor

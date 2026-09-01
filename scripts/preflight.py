@@ -15,7 +15,12 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from nemotron_ft_lab.hardware import inspect_cuda, validate_full_sft_hardware, validate_peft_hardware
+from nemotron_ft_lab.hardware import (
+    inspect_cuda,
+    validate_full_sft_hardware,
+    validate_inference_hardware,
+    validate_peft_hardware,
+)
 
 
 def main() -> None:
@@ -50,6 +55,9 @@ def main() -> None:
         ]
         if missing:
             raise RuntimeError(f"API baseline dependencies are missing: {missing}")
+    elif args.profile == "inference":
+        assert inventory is not None
+        validate_inference_hardware(inventory)
     elif args.profile == "peft":
         assert inventory is not None
         validate_peft_hardware(inventory)

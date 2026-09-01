@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -18,7 +19,15 @@ class HardwareInventory:
 
 
 def inspect_cuda() -> HardwareInventory:
-    import torch
+    try:
+        import torch
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "PyTorch is not installed in the active interpreter "
+            f"({sys.executable}). GPU profiles must run inside the pinned NeMo 26.08 "
+            "container; the host/API virtual environment is only for Notebook 01. "
+            "On Brev, open the custom Jupyter Secure Link on host port 8889."
+        ) from None
 
     if not torch.cuda.is_available():
         return HardwareInventory(0, (), (), 0.0)
@@ -29,6 +38,16 @@ def inspect_cuda() -> HardwareInventory:
         names.append(props.name)
         memory.append(props.total_memory / 1024**3)
     return HardwareInventory(len(names), tuple(names), tuple(memory), sum(memory))
+
+
+def validate_inference_hardware(inventory: HardwareInventory) -> None:
+    if inventory.gpu_count < 1:
+        raise RuntimeError("Local BF16 inference requires at least one CUDA GPU.")
+    if inventory.total_memory_gib < 75:
+        raise RuntimeError(
+            "The local BF16 checkpoint needs one 80 GB GPU or at least 75 GiB "
+            "aggregate visible VRAM."
+        )
 
 
 def validate_peft_hardware(inventory: HardwareInventory) -> None:

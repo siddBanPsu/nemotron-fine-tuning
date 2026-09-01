@@ -36,6 +36,11 @@ dedicated host port 8889 to it. If 8889 is occupied, choose another unprivileged
 `NEMOTRON_JUPYTER_PORT` and update the Brev Secure Link to that same host port.
 The setup preflight reports this before attempting `docker run`.
 
+Use Brev's custom Secure Link on host port 8889 for Notebooks 02–03. The
+Brev-managed Jupyter service on host port 8888 can open the checkout, but its
+host `.venv` is API-only and intentionally does not install PyTorch or the
+Megatron training stack.
+
 Brev executes a pasted lifecycle script outside the repository checkout. The
 setup therefore clones the public repository into a dedicated directory,
 fetches `NEMOTRON_REPOSITORY_REF` (default `main`), checks out the exact fetched

@@ -1,0 +1,11 @@
+# The NVIDIA NeMo 26.08 container supplies CUDA, PyTorch, Transformer Engine,
+# Megatron-Core, and the training stack. These pins match the checked-in
+# Megatron-Bridge commit's 2026-08 lock where they overlap; the OpenAI client
+# matches NVIDIA's current Nemotron cookbook examples.
+datasets==5.0.1
+huggingface-hub==1.29.0
+ipykernel>=6.29,<7
+jupyterlab>=4.4,<5
+openai==2.33.0
+tokenizers>=0.22,<0.23
+transformers==5.12.1

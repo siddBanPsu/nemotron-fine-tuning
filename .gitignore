@@ -1,0 +1,21 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+config/api.local.toml
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.venv-api/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Model, dataset, and run products are intentionally local.
+artifacts/
+checkpoints/
+data/processed/
+logs/
+storage/
+third_party/

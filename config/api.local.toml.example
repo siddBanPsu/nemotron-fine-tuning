@@ -1,0 +1,15 @@
+# Copy this file to config/api.local.toml and replace only the placeholders.
+# config/api.local.toml is ignored by Git. Never put NVIDIA_API_KEY in this file.
+
+profile_name = "internal"
+base_url = "https://REPLACE_WITH_INTERNAL_OPENAI_COMPATIBLE_ENDPOINT/v1"
+requests_per_minute = 120
+timeout_seconds = 90
+
+[models.lightning]
+model_id = "REPLACE_WITH_INTERNAL_LIGHTNING_MODEL_ID"
+served_variant = "REPLACE_WITH_INTERNAL_LIGHTNING_VARIANT"
+
+[models.ultra]
+model_id = "REPLACE_WITH_INTERNAL_ULTRA_MODEL_ID"
+served_variant = "REPLACE_WITH_INTERNAL_ULTRA_VARIANT"

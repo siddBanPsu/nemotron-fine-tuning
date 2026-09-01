@@ -1,0 +1,91 @@
+# Documentation manifest for Brev Console's Launchable builder.
+schema_version: 1
+name: Nemotron 3.5 Lightning - Fine-Tuning Lab
+description: >-
+  Four evidence-led labs for NVIDIA Nemotron 3.5 Lightning: benchmark hosted
+  Lightning and Nemotron Ultra NVFP4, repeat the frozen benchmark on the pinned
+  local BF16 checkpoint, improve exact held-out accuracy with LoRA PEFT on one
+  80 GB GPU and compare it with Ultra, and inspect true full-parameter SFT as a
+  design-only multi-GPU handoff.
+
+source:
+  type: public_git_repository
+  repository_url: https://github.com/siddBanPsu/nemotron-fine-tuning
+
+default_hardware:
+  gpu: 1x NVIDIA H100 80 GB
+  host_memory_gb: 128
+  disk_gb: 300
+  reason: >-
+    Runs Notebooks 02-03 after the CPU-only API baseline. The BF16 weights are about 60 GB; the official
+    single-H100 PEFT profile peaks near 79 GB at 2K sequence length. This lab
+    uses 512-token packed sequences and a bounded 40-step workshop run.
+
+hardware_profiles:
+  - label: Recommended workshop
+    gpu: 1x NVIDIA H100 80 GB
+    host_memory_gb: 128
+    disk_gb: 300
+    notebooks: [01, 02, 03, 04-design]
+    status: Official model supports H100; official single-H100 PEFT cookbook is the basis for Notebook 03.
+  - label: Ampere alternative
+    gpu: 1x NVIDIA A100 80 GB or a sharded allocation with at least 80 GB aggregate VRAM
+    host_memory_gb: 128
+    disk_gb: 300
+    notebooks: [01, 02, 03, 04-design]
+    status: Model inference support is official; rehearse this exact PEFT profile before a workshop.
+  - label: External full-SFT reference
+    gpu: 8x NVIDIA H100 80 GB minimum workshop gate
+    host_memory_gb: 512
+    disk_gb: 500
+    notebooks: [04-design, scripts/train_full.py]
+    status: >-
+      Notebook 04 does not launch training. The external driver uses the
+      official 8-GPU H100 full-SFT recipe at a shorter sequence length.
+      NVIDIA's currently verified packed 4K reference uses 16x H100 80 GB
+      (TP2, EP8); separate target-node rehearsal is mandatory.
+
+software:
+  mode: VM
+  container: nvcr.io/nvidia/nemo:26.08
+  python_version: "3.12"
+  setup_script_file: launchable/setup.sh
+  custom_jupyter: true
+  jupyter_port: 8888
+  jupyter_default_url: /lab/tree/notebooks/01_cloud_api_baseline.ipynb
+
+network:
+  secure_links:
+    - name: jupyter
+      port: 8888
+      show_as_call_to_action: true
+  public_tcp_udp_ports: []
+
+launch_parameters:
+  - name: NEMOTRON_PREFETCH_MODEL
+    required: false
+    default: "0"
+    allowed_values: ["0", "1"]
+    description: Set to 1 for a scheduled GPU workshop; 0 opens the API-first notebook without waiting for BF16 download and conversion.
+  - name: NEMOTRON_JUPYTER_PORT
+    required: false
+    default: "8888"
+    description: Internal Secure Link port; do not expose it as a public TCP port.
+
+credentials:
+  nvidia_api_key:
+    required_for: [01]
+    handling: Prefer the process environment; Notebook 01 falls back to Jupyter's native input channel and clears the prompt after connection.
+  hugging_face_token:
+    required: false
+    handling: Optional for the public model and dataset; use hidden input if needed.
+  prohibition: Never store either token in the repository, Launchable manifest, setup script, notebook output, or evaluation artifacts.
+
+time_budget:
+  counted_from: Jupyter ready; scheduled workshops should prefetch before participant time
+  notebook_01_minutes: 6-25 on CPU for the default 154-request profile paced at 30 RPM, subject to trial endpoint limits and retries
+  notebook_02_minutes: 10-15 on one 80 GB GPU after prefetch
+  notebook_03_minutes: 25-40 target on one H100 80 GB, not yet live-rehearsed
+  notebook_04_minutes: 5-10 design-only; no full-SFT job launches
+
+view_access: anyone_with_link

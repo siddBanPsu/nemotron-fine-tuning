@@ -19,7 +19,9 @@ default_hardware:
   reason: >-
     Runs Notebooks 02-03 after the CPU-only API baseline. The BF16 weights are about 60 GB; the official
     single-H100 PEFT profile peaks near 79 GB at 2K sequence length. This lab
-    uses 512-token packed sequences and a bounded 40-step workshop run.
+    uses 512-token packed sequences and a bounded 40-step workshop run. The
+    selected Brev base image must provide NVIDIA driver 610.43 or newer for the
+    pinned NeMo 26.08 container.
 
 hardware_profiles:
   - label: Recommended workshop
@@ -48,6 +50,7 @@ hardware_profiles:
 software:
   mode: VM
   container: nvcr.io/nvidia/nemo:26.08
+  minimum_nvidia_driver: "610.43"
   python_version: "3.12"
   setup_script_file: launchable/setup.sh
   custom_jupyter: true
@@ -71,6 +74,10 @@ launch_parameters:
     required: false
     default: "8889"
     description: Host-side Secure Link port; container Jupyter remains on 8888. Do not expose either as a public TCP port.
+  - name: NEMOTRON_REPOSITORY_REF
+    required: false
+    default: main
+    description: Git branch, tag, or commit fetched by a pasted Brev lifecycle script; the resolved commit is printed during setup.
 
 credentials:
   nvidia_api_key:

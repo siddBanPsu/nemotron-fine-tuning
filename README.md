@@ -168,12 +168,14 @@ Launchable. The checked-in manifest recommends:
 - VM mode;
 - one H100 80 GB, 128 GB host RAM, and 300 GB disk for Notebooks 02–03;
 - `nvcr.io/nvidia/nemo:26.08`;
+- NVIDIA driver 610.43 or newer on the Brev host;
 - a Brev-authenticated Jupyter Secure Link on host port 8889;
 - model prefetch enabled for scheduled workshops, or disabled for an immediate
   API-first start.
 
 The setup script starts an isolated NeMo container, pins Megatron-Bridge source,
-mounts persistent cache/checkpoint storage, verifies that both Lightning
+bootstraps the public repository when Brev runs the pasted script outside a Git
+checkout, mounts persistent cache/checkpoint storage, verifies that both Lightning
 training recipes import, and opens Notebook 01. Model prefetch now defaults to
 off so the hosted API baseline opens immediately; set
 `NEMOTRON_PREFETCH_MODEL=1` for a scheduled workshop to download and convert the
@@ -182,6 +184,11 @@ for the API key; Notebook 01 falls back to Jupyter's native `input()` channel
 rather than third-party widgets. The prompt is cleared after connection and the
 key is never written to evaluation artifacts. The public Hugging Face model and
 dataset usually require no secret.
+
+The preflight deliberately exits before pulling the large container if
+`nvidia-smi` reports a driver older than 610.43. An older NeMo tag is not a
+drop-in workaround for this repository's pinned Megatron-Bridge recipe and
+Python/PyTorch stack; create a fresh Brev instance with a compatible base image.
 
 ## Run without Brev
 

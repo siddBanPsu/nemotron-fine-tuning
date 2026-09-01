@@ -2,11 +2,16 @@
 set -euo pipefail
 
 CONTAINER_NAME="nemotron-35-ft-lab"
-IMAGE="nvcr.io/nvidia/nemo:26.08"
+IMAGE="${NEMOTRON_CONTAINER_IMAGE:-nvcr.io/nvidia/nemo:26.08}"
+MINIMUM_DRIVER_VERSION="${NEMOTRON_MINIMUM_DRIVER_VERSION:-610.43}"
 JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
+REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotron-fine-tuning.git}"
+REPOSITORY_REF="${NEMOTRON_REPOSITORY_REF:-main}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPOSITORY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LOCAL_REPOSITORY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BOOTSTRAP_REPOSITORY_DIR="${HOME}/nemotron-fine-tuning-launchable"
+REPOSITORY_DIR=""
 STORAGE_DIR="${HOME}/nemotron-35-ft-storage"
 HF_CACHE_DIR="${HOME}/.cache/huggingface"
 
@@ -39,6 +44,51 @@ retry() {
   done
 }
 
+driver_version_at_least() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+
+
+def version_parts(value: str) -> tuple[int, ...]:
+    parts = tuple(int(part) for part in re.findall(r"\d+", value))
+    if not parts:
+        raise ValueError(f"No numeric version found in {value!r}")
+    return parts
+
+
+actual, required = sys.argv[1:]
+raise SystemExit(0 if version_parts(actual) >= version_parts(required) else 1)
+PY
+}
+
+resolve_repository() {
+  if [ -f "${LOCAL_REPOSITORY_DIR}/launchable/container-entrypoint.sh" ]; then
+    REPOSITORY_DIR="${LOCAL_REPOSITORY_DIR}"
+    echo "Using the repository that contains this setup script: ${REPOSITORY_DIR}"
+    return
+  fi
+
+  echo "The Brev lifecycle script is outside the checkout; bootstrapping ${REPOSITORY_URL}."
+  if [ -e "${BOOTSTRAP_REPOSITORY_DIR}" ] && [ ! -d "${BOOTSTRAP_REPOSITORY_DIR}/.git" ]; then
+    echo "Cannot bootstrap into ${BOOTSTRAP_REPOSITORY_DIR}: it exists but is not a Git checkout." >&2
+    exit 1
+  fi
+  if [ ! -d "${BOOTSTRAP_REPOSITORY_DIR}/.git" ]; then
+    retry git clone --filter=blob:none --no-checkout \
+      "${REPOSITORY_URL}" "${BOOTSTRAP_REPOSITORY_DIR}"
+  fi
+  retry git -C "${BOOTSTRAP_REPOSITORY_DIR}" fetch --depth 1 origin "${REPOSITORY_REF}"
+  git -C "${BOOTSTRAP_REPOSITORY_DIR}" checkout --detach FETCH_HEAD
+  REPOSITORY_DIR="${BOOTSTRAP_REPOSITORY_DIR}"
+
+  if [ ! -f "${REPOSITORY_DIR}/launchable/container-entrypoint.sh" ]; then
+    echo "Repository ref '${REPOSITORY_REF}' does not contain launchable/container-entrypoint.sh." >&2
+    exit 1
+  fi
+  echo "Using repository commit $(git -C "${REPOSITORY_DIR}" rev-parse HEAD)."
+}
+
 port_is_free() {
   python3 - "${JUPYTER_PORT}" <<'PY'
 import socket
@@ -52,8 +102,24 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
 PY
 }
 
-echo "[1/5] Checking GPU and container runtime"
+echo "[1/6] Checking GPU, driver, and container runtime"
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv
+mapfile -t DRIVER_VERSIONS < <(
+  nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits
+)
+if [ "${#DRIVER_VERSIONS[@]}" -eq 0 ]; then
+  echo "No NVIDIA driver version was reported by nvidia-smi." >&2
+  exit 1
+fi
+for DRIVER_VERSION in "${DRIVER_VERSIONS[@]}"; do
+  if ! driver_version_at_least "${DRIVER_VERSION}" "${MINIMUM_DRIVER_VERSION}"; then
+    echo "NVIDIA driver ${DRIVER_VERSION} is too old for ${IMAGE}." >&2
+    echo "This pinned Nemotron 3.5 training environment requires driver ${MINIMUM_DRIVER_VERSION} or newer." >&2
+    echo "Create a fresh Brev instance whose base image reports driver ${MINIMUM_DRIVER_VERSION}+; the setup stops before the large container pull." >&2
+    echo "Do not substitute an older NeMo image: it is not the verified dependency stack for these training recipes." >&2
+    exit 1
+  fi
+done
 docker info >/dev/null
 if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   echo "Replacing existing ${CONTAINER_NAME} container"
@@ -65,13 +131,16 @@ if ! port_is_free; then
   exit 1
 fi
 
-echo "[2/5] Preparing persistent model/checkpoint storage"
+echo "[2/6] Resolving the versioned repository"
+resolve_repository
+
+echo "[3/6] Preparing persistent model/checkpoint storage"
 mkdir -p "${STORAGE_DIR}" "${HF_CACHE_DIR}"
 
-echo "[3/5] Pulling the pinned NeMo container"
+echo "[4/6] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"
 
-echo "[4/5] Starting the isolated Jupyter lab container"
+echo "[5/6] Starting the isolated Jupyter lab container"
 docker run --detach \
   --name "${CONTAINER_NAME}" \
   --gpus all \
@@ -90,7 +159,7 @@ docker run --detach \
   "${IMAGE}" \
   bash /workspace/launchable/launchable/container-entrypoint.sh
 
-echo "[5/5] Waiting for Jupyter readiness"
+echo "[6/6] Waiting for Jupyter readiness"
 for _ in $(seq 1 1080); do
   if curl --fail --silent "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
     echo "Ready: open the Brev Secure Link on port ${JUPYTER_PORT}."

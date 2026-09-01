@@ -9,7 +9,9 @@ Launchable object.
    `setup.sh` into the setup-script field.
 3. Notebook 01 can run on any Python 3.12 CPU host. Use one H100 80 GB, at least
    128 GB host RAM, and 300 GB disk for the Notebook 02–03 Brev workshop.
-   Notebook 04 is design-only and does not require a multi-GPU Launchable.
+   Select a current base image whose `nvidia-smi` reports driver **610.43 or
+   newer** for the pinned NeMo 26.08 container. Notebook 04 is design-only and
+   does not require a multi-GPU Launchable.
 4. Add a Secure Link named `jupyter` on host port 8889 and use it as the CTA.
    Port 8888 is commonly occupied by Brev-managed Jupyter. Do not add either
    port to the public TCP/UDP port list.
@@ -31,6 +33,18 @@ The container still runs Jupyter on port 8888 internally; `setup.sh` maps the
 dedicated host port 8889 to it. If 8889 is occupied, choose another unprivileged
 `NEMOTRON_JUPYTER_PORT` and update the Brev Secure Link to that same host port.
 The setup preflight reports this before attempting `docker run`.
+
+Brev executes a pasted lifecycle script outside the repository checkout. The
+setup therefore clones the public repository into a dedicated directory,
+fetches `NEMOTRON_REPOSITORY_REF` (default `main`), checks out the exact fetched
+commit, and prints that commit before mounting it into the container. When the
+same script is run from a normal checkout, it uses that checkout directly.
+
+The GPU preflight also stops before the large container download when the host
+driver is older than 610.43. A host reporting driver 565.57.01 cannot run this
+NeMo 26.08 training image. Do not change only the container tag to an older
+release: the pinned Megatron-Bridge recipes require the newer Python/PyTorch
+dependency stack. Choose a fresh Brev base image with a compatible driver.
 
 For private endpoint testing, copy `config/api.local.toml.example` to the
 Git-ignored `config/api.local.toml` and fill in the private URL, model IDs, and

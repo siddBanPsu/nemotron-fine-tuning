@@ -168,7 +168,7 @@ Launchable. The checked-in manifest recommends:
 - VM mode;
 - one H100 80 GB, 128 GB host RAM, and 300 GB disk for Notebooks 02–03;
 - `nvcr.io/nvidia/nemo:26.08`;
-- a Brev-authenticated Jupyter Secure Link on port 8888;
+- a Brev-authenticated Jupyter Secure Link on host port 8889;
 - model prefetch enabled for scheduled workshops, or disabled for an immediate
   API-first start.
 
@@ -194,9 +194,10 @@ equivalent is:
 NEMOTRON_PREFETCH_MODEL=1 bash launchable/setup.sh
 ```
 
-Open `http://localhost:8888` only through authenticated SSH forwarding or a
+Open `http://localhost:8889` only through authenticated SSH forwarding or a
 trusted local interface. The setup disables Jupyter's own token because Brev's
-Secure Link supplies the access boundary; do not expose port 8888 publicly.
+Secure Link supplies the access boundary; do not expose host port 8889 or
+container port 8888 publicly.
 
 ## Expected workshop flow
 

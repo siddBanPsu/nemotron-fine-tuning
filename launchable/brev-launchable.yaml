@@ -51,13 +51,13 @@ software:
   python_version: "3.12"
   setup_script_file: launchable/setup.sh
   custom_jupyter: true
-  jupyter_port: 8888
+  jupyter_port: 8889
   jupyter_default_url: /lab/tree/notebooks/01_cloud_api_baseline.ipynb
 
 network:
   secure_links:
     - name: jupyter
-      port: 8888
+      port: 8889
       show_as_call_to_action: true
   public_tcp_udp_ports: []
 
@@ -69,8 +69,8 @@ launch_parameters:
     description: Set to 1 for a scheduled GPU workshop; 0 opens the API-first notebook without waiting for BF16 download and conversion.
   - name: NEMOTRON_JUPYTER_PORT
     required: false
-    default: "8888"
-    description: Internal Secure Link port; do not expose it as a public TCP port.
+    default: "8889"
+    description: Host-side Secure Link port; container Jupyter remains on 8888. Do not expose either as a public TCP port.
 
 credentials:
   nvidia_api_key:

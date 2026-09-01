@@ -10,8 +10,9 @@ Launchable object.
 3. Notebook 01 can run on any Python 3.12 CPU host. Use one H100 80 GB, at least
    128 GB host RAM, and 300 GB disk for the Notebook 02–03 Brev workshop.
    Notebook 04 is design-only and does not require a multi-GPU Launchable.
-4. Add a Secure Link named `jupyter` on port 8888 and use it as the CTA. Do
-   not add port 8888 to the public TCP/UDP port list.
+4. Add a Secure Link named `jupyter` on host port 8889 and use it as the CTA.
+   Port 8888 is commonly occupied by Brev-managed Jupyter. Do not add either
+   port to the public TCP/UDP port list.
 5. Leave `NEMOTRON_PREFETCH_MODEL=0` for an immediate API-first start. Set it to
    `1` for a scheduled GPU workshop so the pinned BF16 snapshot and reusable
    Megatron checkpoint are ready before Jupyter opens. Cold provisioning can
@@ -25,6 +26,11 @@ Launchable object.
 7. The hosted evaluator is deliberately paced at 30 RPM under the public
    40-RPM quota. Each response is checkpointed; rerunning the evaluation cell
    resumes the same condition rather than spending requests again.
+
+The container still runs Jupyter on port 8888 internally; `setup.sh` maps the
+dedicated host port 8889 to it. If 8889 is occupied, choose another unprivileged
+`NEMOTRON_JUPYTER_PORT` and update the Brev Secure Link to that same host port.
+The setup preflight reports this before attempting `docker run`.
 
 For private endpoint testing, copy `config/api.local.toml.example` to the
 Git-ignored `config/api.local.toml` and fill in the private URL, model IDs, and

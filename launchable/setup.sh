@@ -3,7 +3,7 @@ set -euo pipefail
 
 CONTAINER_NAME="nemotron-35-ft-lab"
 IMAGE="nvcr.io/nvidia/nemo:26.08"
-JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8888}"
+JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -39,9 +39,27 @@ retry() {
   done
 }
 
+port_is_free() {
+  python3 - "${JUPYTER_PORT}" <<'PY'
+import socket
+import sys
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+    try:
+        listener.bind(("127.0.0.1", int(sys.argv[1])))
+    except OSError:
+        raise SystemExit(1)
+PY
+}
+
 echo "[1/5] Checking GPU and container runtime"
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv
 docker info >/dev/null
+if ! port_is_free; then
+  echo "Host port 127.0.0.1:${JUPYTER_PORT} is already in use." >&2
+  echo "Set NEMOTRON_JUPYTER_PORT to a free port and configure the Brev Secure Link to the same port." >&2
+  exit 1
+fi
 
 echo "[2/5] Preparing persistent model/checkpoint storage"
 mkdir -p "${STORAGE_DIR}" "${HF_CACHE_DIR}"

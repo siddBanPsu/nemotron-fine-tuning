@@ -20,8 +20,9 @@ default_hardware:
     Runs Notebooks 02-03 after the CPU-only API baseline. The BF16 weights are about 60 GB; the official
     single-H100 PEFT profile peaks near 79 GB at 2K sequence length. This lab
     uses 512-token packed sequences and a bounded 40-step workshop run. The
-    selected Brev base image must provide NVIDIA driver 610.43 or newer for the
-    pinned NeMo 26.08 container.
+    selected Brev base image must provide NVIDIA driver 580.65.06 or newer for
+    CUDA 13.x minor-version compatibility; 610.43.02 or newer is the native
+    driver level for the pinned NeMo 26.08 container.
 
 hardware_profiles:
   - label: Recommended workshop
@@ -35,7 +36,7 @@ hardware_profiles:
     host_memory_gb: 128
     disk_gb: 300
     notebooks: [01, 02, 03, 04-design]
-    status: Model inference support is official; rehearse this exact PEFT profile before a workshop.
+    status: Model inference support is official; R595 can use documented CUDA 13.x minor compatibility, but rehearse this exact PEFT profile before a workshop.
   - label: External full-SFT reference
     gpu: 8x NVIDIA H100 80 GB minimum workshop gate
     host_memory_gb: 512
@@ -50,7 +51,7 @@ hardware_profiles:
 software:
   mode: VM
   container: nvcr.io/nvidia/nemo:26.08
-  minimum_nvidia_driver: "610.43"
+  minimum_nvidia_driver: "580.65.06 for CUDA 13.x minor compatibility; 610.43.02 native"
   python_version: "3.12"
   setup_script_file: launchable/setup.sh
   custom_jupyter: true

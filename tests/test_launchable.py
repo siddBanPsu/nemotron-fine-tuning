@@ -33,7 +33,17 @@ class LaunchableTests(unittest.TestCase):
         container_pull = setup.index('retry docker pull "${IMAGE}"')
         self.assertLess(driver_gate, driver_check)
         self.assertLess(driver_check, container_pull)
-        self.assertIn("NEMOTRON_MINIMUM_DRIVER_VERSION:-610.43", setup)
+        self.assertIn("NEMOTRON_MINIMUM_DRIVER_VERSION:-580.65.06", setup)
+        self.assertIn('NATIVE_DRIVER_VERSION="610.43.02"', setup)
+
+    def test_cuda_compatibility_is_proven_before_jupyter_starts(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        container_pull = setup.index('retry docker pull "${IMAGE}"')
+        cuda_smoke = setup.index("torch.cuda.is_available()")
+        jupyter_container = setup.index("docker run --detach")
+        self.assertLess(container_pull, cuda_smoke)
+        self.assertLess(cuda_smoke, jupyter_container)
+        self.assertIn("torch.ones(1, device=device)", setup)
 
 
 if __name__ == "__main__":

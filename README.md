@@ -168,7 +168,8 @@ Launchable. The checked-in manifest recommends:
 - VM mode;
 - one H100 80 GB, 128 GB host RAM, and 300 GB disk for Notebooks 02–03;
 - `nvcr.io/nvidia/nemo:26.08`;
-- NVIDIA driver 610.43 or newer on the Brev host;
+- NVIDIA driver 580.65.06 or newer on the Brev host for CUDA 13.x minor-version
+  compatibility; 610.43.02 or newer is the container's native driver level;
 - a Brev-authenticated Jupyter Secure Link on host port 8889;
 - model prefetch enabled for scheduled workshops, or disabled for an immediate
   API-first start.
@@ -186,9 +187,12 @@ key is never written to evaluation artifacts. The public Hugging Face model and
 dataset usually require no secret.
 
 The preflight deliberately exits before pulling the large container if
-`nvidia-smi` reports a driver older than 610.43. An older NeMo tag is not a
-drop-in workaround for this repository's pinned Megatron-Bridge recipe and
-Python/PyTorch stack; create a fresh Brev instance with a compatible base image.
+`nvidia-smi` reports a driver older than 580.65.06. R580 through R609 use CUDA
+13.x minor-version compatibility, so setup performs a real PyTorch CUDA tensor
+operation inside the pinned container before starting Jupyter. This allows an
+A100 on R595 to proceed while still rejecting the incompatible R565 image. An
+older NeMo tag is not a drop-in workaround for this repository's pinned
+Megatron-Bridge recipe and Python/PyTorch stack.
 
 ## Run without Brev
 
@@ -285,6 +289,8 @@ a fresh live rehearsal.
 - [NVIDIA Nemotron 3.5 Lightning training recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/docs/nemotron/lightning35)
 - [NVIDIA Megatron-Bridge Lightning recipes and verification card](https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/model_verification_cards/nemotron-3.5-lightning)
 - [NVIDIA Lightning Text2SQL LoRA cookbook](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3.5-Lightning/lora-text2sql)
+- [NVIDIA CUDA DL 26.08 release notes](https://docs.nvidia.com/deeplearning/frameworks/cuda-dl-release-notes/rel-26-08.html)
+- [NVIDIA CUDA minor-version compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html)
 - [BANKING77 dataset card](https://huggingface.co/datasets/PolyAI/banking77)
 - [BANKING77 paper](https://aclanthology.org/2020.nlp4convai-1.5/)
 

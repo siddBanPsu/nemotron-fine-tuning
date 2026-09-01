@@ -3,7 +3,8 @@ set -euo pipefail
 
 CONTAINER_NAME="nemotron-35-ft-lab"
 IMAGE="${NEMOTRON_CONTAINER_IMAGE:-nvcr.io/nvidia/nemo:26.08}"
-MINIMUM_DRIVER_VERSION="${NEMOTRON_MINIMUM_DRIVER_VERSION:-610.43}"
+MINIMUM_DRIVER_VERSION="${NEMOTRON_MINIMUM_DRIVER_VERSION:-580.65.06}"
+NATIVE_DRIVER_VERSION="610.43.02"
 JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
 REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotron-fine-tuning.git}"
@@ -102,7 +103,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
 PY
 }
 
-echo "[1/6] Checking GPU, driver, and container runtime"
+echo "[1/7] Checking GPU, driver, and container runtime"
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv
 mapfile -t DRIVER_VERSIONS < <(
   nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits
@@ -114,10 +115,14 @@ fi
 for DRIVER_VERSION in "${DRIVER_VERSIONS[@]}"; do
   if ! driver_version_at_least "${DRIVER_VERSION}" "${MINIMUM_DRIVER_VERSION}"; then
     echo "NVIDIA driver ${DRIVER_VERSION} is too old for ${IMAGE}." >&2
-    echo "This pinned Nemotron 3.5 training environment requires driver ${MINIMUM_DRIVER_VERSION} or newer." >&2
+    echo "CUDA 13.x minor-version compatibility requires driver ${MINIMUM_DRIVER_VERSION} or newer." >&2
     echo "Create a fresh Brev instance whose base image reports driver ${MINIMUM_DRIVER_VERSION}+; the setup stops before the large container pull." >&2
     echo "Do not substitute an older NeMo image: it is not the verified dependency stack for these training recipes." >&2
     exit 1
+  fi
+  if ! driver_version_at_least "${DRIVER_VERSION}" "${NATIVE_DRIVER_VERSION}"; then
+    echo "Driver ${DRIVER_VERSION} will use documented CUDA 13.x minor-version compatibility."
+    echo "The container CUDA smoke test after the pull must pass before Jupyter starts."
   fi
 done
 docker info >/dev/null
@@ -131,16 +136,34 @@ if ! port_is_free; then
   exit 1
 fi
 
-echo "[2/6] Resolving the versioned repository"
+echo "[2/7] Resolving the versioned repository"
 resolve_repository
 
-echo "[3/6] Preparing persistent model/checkpoint storage"
+echo "[3/7] Preparing persistent model/checkpoint storage"
 mkdir -p "${STORAGE_DIR}" "${HF_CACHE_DIR}"
 
-echo "[4/6] Pulling the pinned NeMo container"
+echo "[4/7] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"
 
-echo "[5/6] Starting the isolated Jupyter lab container"
+echo "[5/7] Validating CUDA inside the pinned container"
+docker run --rm --gpus all --interactive "${IMAGE}" python - <<'PY'
+import torch
+
+if not torch.cuda.is_available():
+    raise RuntimeError("PyTorch cannot initialize CUDA inside the NeMo container.")
+for index in range(torch.cuda.device_count()):
+    device = torch.device(f"cuda:{index}")
+    value = (torch.ones(1, device=device) + 1).item()
+    if value != 2:
+        raise RuntimeError(f"CUDA arithmetic smoke test failed on {device}: {value}")
+    torch.cuda.synchronize(device)
+print(
+    f"CUDA smoke test passed on {torch.cuda.device_count()} GPU(s): "
+    f"{torch.cuda.get_device_name(0)}"
+)
+PY
+
+echo "[6/7] Starting the isolated Jupyter lab container"
 docker run --detach \
   --name "${CONTAINER_NAME}" \
   --gpus all \
@@ -159,7 +182,7 @@ docker run --detach \
   "${IMAGE}" \
   bash /workspace/launchable/launchable/container-entrypoint.sh
 
-echo "[6/6] Waiting for Jupyter readiness"
+echo "[7/7] Waiting for Jupyter readiness"
 for _ in $(seq 1 1080); do
   if curl --fail --silent "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
     echo "Ready: open the Brev Secure Link on port ${JUPYTER_PORT}."

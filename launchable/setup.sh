@@ -55,6 +55,10 @@ PY
 echo "[1/5] Checking GPU and container runtime"
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv
 docker info >/dev/null
+if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
+  echo "Replacing existing ${CONTAINER_NAME} container"
+  docker rm -f "${CONTAINER_NAME}" >/dev/null
+fi
 if ! port_is_free; then
   echo "Host port 127.0.0.1:${JUPYTER_PORT} is already in use." >&2
   echo "Set NEMOTRON_JUPYTER_PORT to a free port and configure the Brev Secure Link to the same port." >&2
@@ -68,10 +72,6 @@ echo "[3/5] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"
 
 echo "[4/5] Starting the isolated Jupyter lab container"
-if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
-  docker rm -f "${CONTAINER_NAME}" >/dev/null
-fi
-
 docker run --detach \
   --name "${CONTAINER_NAME}" \
   --gpus all \

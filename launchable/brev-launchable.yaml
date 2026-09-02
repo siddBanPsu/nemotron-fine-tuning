@@ -81,7 +81,7 @@ launch_parameters:
     description: Git branch, tag, or commit fetched by a pasted Brev lifecycle script; the resolved commit is printed during setup.
   - name: NEMOTRON_DATA_ROOT
     required: false
-    description: Optional absolute path on a large mounted volume; stores checkpoints in its storage subdirectory and Hugging Face files in its huggingface subdirectory.
+    description: Optional absolute runtime root; stores checkpoints, Hugging Face files, notebook artifacts, caches, and temporary files in separate subdirectories. Use persistent Brev storage, not /tmp, for retained results.
 
 credentials:
   nvidia_api_key:

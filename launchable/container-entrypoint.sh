@@ -26,11 +26,21 @@ retry() {
   done
 }
 
-echo "[container 1/5] Installing notebook dependencies"
+echo "[container 1/6] Verifying PyTorch supplied by the pinned NeMo image"
+python - <<'PY'
+import torch
+
+print(f"Preinstalled PyTorch: {torch.__version__}")
+print(f"CUDA runtime visible to PyTorch: {torch.version.cuda}")
+if not torch.cuda.is_available():
+    raise RuntimeError("The NeMo container's preinstalled PyTorch cannot initialize CUDA.")
+PY
+
+echo "[container 2/6] Installing lightweight notebook dependencies"
 retry python -m pip install --disable-pip-version-check -r requirements-lab.txt
 python -m pip install --disable-pip-version-check --no-deps --editable .
 
-echo "[container 2/5] Resolving the pinned Megatron-Bridge source"
+echo "[container 3/6] Resolving the pinned Megatron-Bridge source"
 if [ ! -d "${MEGATRON_BRIDGE_DIR}/.git" ]; then
   git clone --filter=blob:none --recurse-submodules \
     https://github.com/NVIDIA-NeMo/Megatron-Bridge.git "${MEGATRON_BRIDGE_DIR}"
@@ -51,7 +61,7 @@ assert callable(nemotron_3_5_lightning_sft_config)
 print("Megatron-Bridge Lightning PEFT and full-SFT recipes are importable.")
 PY
 
-echo "[container 3/5] Optional model prefetch"
+echo "[container 4/6] Optional model prefetch"
 if [ "${NEMOTRON_PREFETCH_MODEL:-0}" = "1" ]; then
   export PREFETCH_MODEL_ID="${MODEL_ID}"
   export PREFETCH_MODEL_REVISION="${MODEL_REVISION}"
@@ -68,7 +78,7 @@ print(f"Model snapshot ready at {path}")
 PY
 fi
 
-echo "[container 4/5] Optional reusable checkpoint conversion"
+echo "[container 5/6] Optional reusable checkpoint conversion"
 if [ "${NEMOTRON_PREFETCH_MODEL:-0}" = "1" ]; then
   python scripts/convert_checkpoint.py \
     --hf-model "${MODEL_ID}" \
@@ -76,7 +86,7 @@ if [ "${NEMOTRON_PREFETCH_MODEL:-0}" = "1" ]; then
     --output /workspace/storage/checkpoints/lightning35-megatron
 fi
 
-echo "[container 5/5] Starting JupyterLab"
+echo "[container 6/6] Starting JupyterLab"
 exec jupyter lab \
   --allow-root \
   --ip=0.0.0.0 \

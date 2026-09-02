@@ -11,18 +11,27 @@ REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotro
 REPOSITORY_REF="${NEMOTRON_REPOSITORY_REF:-main}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_REPOSITORY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BOOTSTRAP_REPOSITORY_DIR="${HOME}/nemotron-fine-tuning-launchable"
 REPOSITORY_DIR=""
 DATA_ROOT="${NEMOTRON_DATA_ROOT:-}"
 if [ -n "${DATA_ROOT}" ]; then
+  BOOTSTRAP_REPOSITORY_DIR="${NEMOTRON_REPOSITORY_DIR:-${DATA_ROOT}/repository}"
   STORAGE_DIR="${NEMOTRON_STORAGE_DIR:-${DATA_ROOT}/storage}"
   HF_CACHE_DIR="${NEMOTRON_HF_CACHE_DIR:-${DATA_ROOT}/huggingface}"
+  ARTIFACTS_DIR="${NEMOTRON_ARTIFACTS_DIR:-${DATA_ROOT}/artifacts}"
+  CACHE_DIR="${NEMOTRON_CACHE_DIR:-${DATA_ROOT}/cache}"
+  TEMP_DIR="${NEMOTRON_TEMP_DIR:-${DATA_ROOT}/tmp}"
 else
+  BOOTSTRAP_REPOSITORY_DIR="${NEMOTRON_REPOSITORY_DIR:-${HOME}/nemotron-fine-tuning-launchable}"
   STORAGE_DIR="${NEMOTRON_STORAGE_DIR:-${HOME}/nemotron-35-ft-storage}"
   HF_CACHE_DIR="${NEMOTRON_HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
+  ARTIFACTS_DIR="${NEMOTRON_ARTIFACTS_DIR:-}"
+  CACHE_DIR="${NEMOTRON_CACHE_DIR:-${STORAGE_DIR}/cache}"
+  TEMP_DIR="${NEMOTRON_TEMP_DIR:-${STORAGE_DIR}/tmp}"
 fi
 
-for PERSISTENT_PATH in "${STORAGE_DIR}" "${HF_CACHE_DIR}"; do
+for PERSISTENT_PATH in \
+  "${BOOTSTRAP_REPOSITORY_DIR}" "${STORAGE_DIR}" "${HF_CACHE_DIR}" \
+  "${CACHE_DIR}" "${TEMP_DIR}"; do
   case "${PERSISTENT_PATH}" in
     /*) ;;
     *)
@@ -93,6 +102,7 @@ resolve_repository() {
     exit 1
   fi
   if [ ! -d "${BOOTSTRAP_REPOSITORY_DIR}/.git" ]; then
+    mkdir -p "$(dirname "${BOOTSTRAP_REPOSITORY_DIR}")"
     retry git clone --filter=blob:none --no-checkout \
       "${REPOSITORY_URL}" "${BOOTSTRAP_REPOSITORY_DIR}"
   fi
@@ -156,15 +166,32 @@ fi
 echo "[2/7] Resolving the versioned repository"
 resolve_repository
 
+if [ -z "${ARTIFACTS_DIR}" ]; then
+  ARTIFACTS_DIR="${REPOSITORY_DIR}/artifacts"
+fi
+case "${ARTIFACTS_DIR}" in
+  /*) ;;
+  *)
+    echo "NEMOTRON_ARTIFACTS_DIR must be absolute; received '${ARTIFACTS_DIR}'." >&2
+    exit 1
+    ;;
+esac
+
 echo "[3/7] Preparing persistent model/checkpoint storage"
-if ! mkdir -p "${STORAGE_DIR}" "${HF_CACHE_DIR}"; then
+if ! mkdir -p \
+  "${STORAGE_DIR}" "${HF_CACHE_DIR}" "${ARTIFACTS_DIR}" "${CACHE_DIR}" "${TEMP_DIR}"; then
   echo "Could not create persistent storage. The selected filesystem may be full." >&2
   echo "Set NEMOTRON_DATA_ROOT to an absolute path on a volume with roughly 300 GB available." >&2
   exit 1
 fi
 echo "Checkpoint storage: ${STORAGE_DIR}"
 echo "Hugging Face cache: ${HF_CACHE_DIR}"
-df -h "${STORAGE_DIR}" "${HF_CACHE_DIR}" | awk 'NR == 1 || !seen[$1]++'
+echo "Notebook artifacts: ${ARTIFACTS_DIR}"
+echo "Runtime cache: ${CACHE_DIR}"
+echo "Temporary files: ${TEMP_DIR}"
+df -h \
+  "${STORAGE_DIR}" "${HF_CACHE_DIR}" "${ARTIFACTS_DIR}" "${CACHE_DIR}" "${TEMP_DIR}" \
+  | awk 'NR == 1 || !seen[$1]++'
 
 echo "[4/7] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"
@@ -197,11 +224,29 @@ docker run --detach \
   --ulimit stack=67108864 \
   -p "127.0.0.1:${JUPYTER_PORT}:8888" \
   -e "NEMOTRON_PREFETCH_MODEL=${PREFETCH_MODEL}" \
+  -e "NEMOTRON_ARTIFACTS_DIR=/workspace/launchable/artifacts" \
   -e "HF_HOME=/root/.cache/huggingface" \
+  -e "XDG_CACHE_HOME=/workspace/cache/xdg" \
+  -e "PIP_CACHE_DIR=/workspace/cache/pip" \
+  -e "TORCH_HOME=/workspace/cache/torch" \
+  -e "TORCH_EXTENSIONS_DIR=/workspace/cache/torch-extensions" \
+  -e "TORCHINDUCTOR_CACHE_DIR=/workspace/cache/torch-inductor" \
+  -e "TRITON_CACHE_DIR=/workspace/cache/triton" \
+  -e "CUDA_CACHE_PATH=/workspace/cache/cuda" \
+  -e "NUMBA_CACHE_DIR=/workspace/cache/numba" \
+  -e "PYTHONPYCACHEPREFIX=/workspace/cache/pycache" \
+  -e "TMPDIR=/workspace/tmp" \
+  -e "IPYTHONDIR=/workspace/cache/ipython" \
+  -e "JUPYTER_CONFIG_DIR=/workspace/cache/jupyter/config" \
+  -e "JUPYTER_DATA_DIR=/workspace/cache/jupyter/data" \
+  -e "JUPYTER_RUNTIME_DIR=/workspace/cache/jupyter-runtime" \
   -e "PYTHONPATH=/workspace/launchable/src" \
   -v "${REPOSITORY_DIR}:/workspace/launchable" \
   -v "${STORAGE_DIR}:/workspace/storage" \
   -v "${HF_CACHE_DIR}:/root/.cache/huggingface" \
+  -v "${ARTIFACTS_DIR}:/workspace/launchable/artifacts" \
+  -v "${CACHE_DIR}:/workspace/cache" \
+  -v "${TEMP_DIR}:/workspace/tmp" \
   -w /workspace/launchable \
   "${IMAGE}" \
   bash /workspace/launchable/launchable/container-entrypoint.sh

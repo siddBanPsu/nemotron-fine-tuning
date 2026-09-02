@@ -35,10 +35,11 @@ def count_packed_sequences(data_dir: Path, sequence_length: int) -> tuple[int, i
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    artifacts_dir = Path(os.environ.get("NEMOTRON_ARTIFACTS_DIR", "artifacts"))
     parser.add_argument("--hf-model", default=MODEL_ID)
     parser.add_argument("--revision", default=MODEL_REVISION)
     parser.add_argument("--megatron-checkpoint", default="/workspace/storage/checkpoints/lightning35-megatron")
-    parser.add_argument("--data-dir", default="artifacts/data/banking77")
+    parser.add_argument("--data-dir", default=str(artifacts_dir / "data/banking77"))
     parser.add_argument("--output-dir", default="/workspace/storage/checkpoints/banking77-lora")
     parser.add_argument("--sequence-length", type=int, default=512)
     parser.add_argument("--global-batch-size", type=int, default=16)

@@ -72,10 +72,13 @@ conversion, and exposes only Jupyter through Brev's authenticated Secure Link.
 
 The host `.venv` is intentionally API-only. Do not run `uv pip install torch`
 there: it duplicates the large CUDA/NeMo dependency stack and can exhaust the
-VM home filesystem. Use the pinned container for Notebooks 02–03.
+VM home filesystem. PyTorch is already installed in the pinned NeMo image;
+setup prints its version and proves CUDA before starting Jupyter. Use that
+container for Notebooks 02–03.
 
-When the VM has a large mounted data disk, route model weights and checkpoints
-to it with one setting (replace the example path with the real absolute mount):
+When the VM has a large mounted data disk, route model weights, checkpoints,
+notebook artifacts, caches, and temporary files to it with one setting (replace
+the example path with the real absolute mount):
 
 ```bash
 df -hT "$HOME" /var/lib/docker /path/to/large-volume
@@ -84,10 +87,22 @@ export NEMOTRON_PREFETCH_MODEL=0
 bash launchable/setup.sh
 ```
 
+For a short-lived non-Brev VM where `/tmp` is confirmed to be a disk with enough
+space, the equivalent opt-in is:
+
+```bash
+findmnt -T /tmp
+export NEMOTRON_DATA_ROOT=/tmp/nemotron-fine-tuning
+export NEMOTRON_PREFETCH_MODEL=0
+bash launchable/setup.sh
+```
+
 Start with prefetch disabled to verify the container and Jupyter path. Set
 `NEMOTRON_PREFETCH_MODEL=1` on the next run when the data volume and Docker data
-root have enough free space. The setup prints both selected persistent paths
-and their filesystem capacity before pulling the container. For a remote VM,
+root have enough free space. The setup prints every selected runtime path and
+its filesystem capacity before pulling the container. Docker image layers still
+use the Docker daemon's data root and cannot be redirected by this setting.
+For a remote VM,
 keep port 8889 bound to loopback and access it through SSH forwarding:
 
 ```bash
@@ -98,6 +113,10 @@ The training code already uses the NeMo Megatron-Bridge SDK. Notebook 01 alone
 uses a hosted API so local Lightning fine-tuning can be compared with hosted
 Lightning and Ultra without serving those large baseline models on the
 single-GPU VM.
+
+Brev documents `/tmp` as non-persistent across a stop. Keep the public
+Launchable default on its provisioned persistent disk/workspace; use `/tmp`
+only for a disposable rehearsal and export any artifacts before stopping it.
 
 ## Rehearsal gate
 

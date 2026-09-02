@@ -61,7 +61,9 @@ class NotebookTests(unittest.TestCase):
         self.assertIn("balanced_evaluation_subset", api_text)
         self.assertIn("baseline_api_{artifact_model_name}_nvfp4_", api_text)
         self.assertIn("baseline_local_bf16.json", local_text)
-        self.assertIn("BASELINE_PATH = ROOT / 'artifacts/evaluation/baseline_local_bf16.json'", peft_text)
+        self.assertIn("BASELINE_PATH = ARTIFACTS_DIR / 'evaluation/baseline_local_bf16.json'", peft_text)
+        for text in (api_text, local_text, peft_text):
+            self.assertIn("NEMOTRON_ARTIFACTS_DIR", text)
         self.assertIn("CLOUD_BASELINE_GLOB = 'baseline_api_*_nvfp4_*_per_label.json'", peft_text)
         self.assertIn("peft_vs_cloud_targets.json", peft_text)
         self.assertIn("tuned Lightning is better", peft_text)

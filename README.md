@@ -156,7 +156,8 @@ Prefer exporting `NVIDIA_API_KEY` before starting Jupyter. Alternatively,
 Notebook 01 uses Jupyter's native `input()` prompt: paste the key and press
 **Enter**. This bypasses the unreliable `ipywidgets` layer in some notebook
 frontends. The key is briefly visible during entry, then the prompt is cleared.
-Generated API responses and reports remain under ignored `artifacts/`.
+Generated API responses and reports remain under ignored `artifacts/`, or under
+`NEMOTRON_ARTIFACTS_DIR` when that override is set.
 The evaluator checkpoints every response, defaults to 30 RPM under the public
 40-RPM quota, and automatically resumes after a `429` or notebook interruption.
 
@@ -174,7 +175,8 @@ Launchable. The checked-in manifest recommends:
 - model prefetch enabled for scheduled workshops, or disabled for an immediate
   API-first start.
 
-The setup script starts an isolated NeMo container, pins Megatron-Bridge source,
+The setup script starts an isolated NeMo container whose image already contains
+PyTorch and the matched CUDA libraries, pins Megatron-Bridge source,
 bootstraps the public repository when Brev runs the pasted script outside a Git
 checkout, mounts persistent cache/checkpoint storage, verifies that both Lightning
 training recipes import, and opens Notebook 01. Model prefetch now defaults to
@@ -212,8 +214,8 @@ lightweight host `.venv`. That environment is only for Notebook 01. The GPU
 notebooks run in the pinned container, which already supplies the matched
 PyTorch, CUDA, Transformer Engine, Megatron-Core, and Megatron-Bridge stack.
 
-On a VM with a separate large data volume, point all model and checkpoint
-storage at it before setup. Replace `/path/to/large-volume` with an existing
+On a VM with a separate large filesystem, point all repository-controlled large
+writes at it before setup. Replace `/path/to/large-volume` with an existing
 absolute mount path:
 
 ```bash
@@ -222,12 +224,30 @@ export NEMOTRON_DATA_ROOT=/path/to/large-volume/nemotron-fine-tuning
 NEMOTRON_PREFETCH_MODEL=1 bash launchable/setup.sh
 ```
 
-`NEMOTRON_DATA_ROOT` places checkpoints under `$NEMOTRON_DATA_ROOT/storage`
-and the Hugging Face cache under `$NEMOTRON_DATA_ROOT/huggingface`. Set
-`NEMOTRON_STORAGE_DIR` or `NEMOTRON_HF_CACHE_DIR` only when those two locations
-must be overridden separately. Docker's own image layers remain under its
-configured data root, commonly `/var/lib/docker`, which also needs enough free
-space.
+`NEMOTRON_DATA_ROOT` places checkpoints, Hugging Face files, notebook artifacts,
+runtime caches, and temporary files in its `storage/`, `huggingface/`,
+`artifacts/`, `cache/`, and `tmp/` subdirectories. It also places the bootstrap
+clone there when Brev runs the lifecycle script outside a checkout. Individual
+`NEMOTRON_*_DIR` variables remain available for advanced overrides. Docker's
+own image layers remain under its daemon data root, commonly `/var/lib/docker`,
+which also needs enough free space.
+
+For a disposable standalone VM whose `/tmp` is a large disk rather than a small
+RAM-backed `tmpfs`, use:
+
+```bash
+findmnt -T /tmp
+df -hT /tmp /var/lib/docker
+export NEMOTRON_DATA_ROOT=/tmp/nemotron-fine-tuning
+export NEMOTRON_PREFETCH_MODEL=0
+bash launchable/setup.sh
+```
+
+Rerun with prefetch set to `1` after the container and CUDA checks pass. `/tmp`
+is not a persistence boundary: copy reports or checkpoints elsewhere before the
+VM is stopped, rebooted, or reclaimed. On Brev, prefer the instance's configured
+persistent workspace/storage and provision the Launchable's 300 GiB disk rather
+than selecting `/tmp`.
 
 Open `http://localhost:8889` only through authenticated SSH forwarding or a
 trusted local interface. The setup disables Jupyter's own token because Brev's

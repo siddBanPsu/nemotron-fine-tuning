@@ -51,7 +51,22 @@ class LaunchableTests(unittest.TestCase):
         self.assertIn('DATA_ROOT="${NEMOTRON_DATA_ROOT:-}"', setup)
         self.assertIn('${NEMOTRON_STORAGE_DIR:-${DATA_ROOT}/storage}', setup)
         self.assertIn('${NEMOTRON_HF_CACHE_DIR:-${DATA_ROOT}/huggingface}', setup)
+        self.assertIn('${NEMOTRON_ARTIFACTS_DIR:-${DATA_ROOT}/artifacts}', setup)
+        self.assertIn('${NEMOTRON_CACHE_DIR:-${DATA_ROOT}/cache}', setup)
+        self.assertIn('${NEMOTRON_TEMP_DIR:-${DATA_ROOT}/tmp}', setup)
+        self.assertIn('${ARTIFACTS_DIR}:/workspace/launchable/artifacts', setup)
+        self.assertIn('${CACHE_DIR}:/workspace/cache', setup)
+        self.assertIn('${TEMP_DIR}:/workspace/tmp', setup)
+        self.assertIn('TMPDIR=/workspace/tmp', setup)
+        self.assertIn('TRITON_CACHE_DIR=/workspace/cache/triton', setup)
         self.assertIn("name: NEMOTRON_DATA_ROOT", manifest)
+
+    def test_torch_is_verified_from_the_nemo_image_not_host_installed(self):
+        entrypoint = (ROOT / "launchable/container-entrypoint.sh").read_text(encoding="utf-8")
+        requirements = (ROOT / "requirements-lab.txt").read_text(encoding="utf-8")
+        self.assertIn("Preinstalled PyTorch", entrypoint)
+        self.assertIn("torch.cuda.is_available()", entrypoint)
+        self.assertNotIn("\ntorch", requirements)
 
 
 if __name__ == "__main__":

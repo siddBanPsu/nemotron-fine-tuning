@@ -7,6 +7,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -43,7 +44,8 @@ from nemotron_ft_lab.data import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", default="artifacts/data/banking77")
+    artifacts_dir = Path(os.environ.get("NEMOTRON_ARTIFACTS_DIR", "artifacts"))
+    parser.add_argument("--output-dir", default=str(artifacts_dir / "data/banking77"))
     parser.add_argument("--model", default=MODEL_ID)
     parser.add_argument("--model-revision", default=MODEL_REVISION)
     parser.add_argument("--train-per-label", type=int, default=DEFAULT_TRAIN_PER_LABEL)

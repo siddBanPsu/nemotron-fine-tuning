@@ -227,7 +227,10 @@ NEMOTRON_PREFETCH_MODEL=1 bash launchable/setup.sh
 `NEMOTRON_DATA_ROOT` places checkpoints, Hugging Face files, notebook artifacts,
 runtime caches, and temporary files in its `storage/`, `huggingface/`,
 `artifacts/`, `cache/`, and `tmp/` subdirectories. It also places the bootstrap
-clone there when Brev runs the lifecycle script outside a checkout. Individual
+clone there when Brev runs the lifecycle script outside a checkout. In `auto`
+repository mode it also uses that clean clone when the invoking checkout is
+outside the data root; this avoids Docker bind-mount failures on restricted or
+root-squashed home directories. Individual
 `NEMOTRON_*_DIR` variables remain available for advanced overrides. Docker's
 own image layers remain under its daemon data root, commonly `/var/lib/docker`,
 which also needs enough free space.
@@ -244,6 +247,11 @@ export NEMOTRON_DATA_ROOT=/tmp/nemotron-fine-tuning
 export NEMOTRON_PREFETCH_MODEL=0
 bash launchable/setup.sh
 ```
+
+The default `NEMOTRON_REPOSITORY_MODE=auto` stages the public repository under
+`/tmp/nemotron-fine-tuning/repository` for this layout. Use `local` only when
+Docker can read the invoking checkout and uncommitted local source changes must
+be mounted; use `bootstrap` to always fetch `NEMOTRON_REPOSITORY_REF`.
 
 Rerun with prefetch set to `1` after the container and CUDA checks pass. `/tmp`
 is not a persistence boundary: copy reports or checkpoints elsewhere before the

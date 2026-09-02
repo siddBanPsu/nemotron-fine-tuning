@@ -79,6 +79,11 @@ launch_parameters:
     required: false
     default: main
     description: Git branch, tag, or commit fetched by a pasted Brev lifecycle script; the resolved commit is printed during setup.
+  - name: NEMOTRON_REPOSITORY_MODE
+    required: false
+    default: auto
+    allowed_values: [auto, local, bootstrap]
+    description: Auto uses a clean clone under NEMOTRON_DATA_ROOT when the invoking checkout is elsewhere; local forces the invoking checkout; bootstrap always fetches the configured repository ref.
   - name: NEMOTRON_DATA_ROOT
     required: false
     description: Optional absolute runtime root; stores checkpoints, Hugging Face files, notebook artifacts, caches, and temporary files in separate subdirectories. Use persistent Brev storage, not /tmp, for retained results.

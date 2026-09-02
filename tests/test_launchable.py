@@ -26,6 +26,15 @@ class LaunchableTests(unittest.TestCase):
         self.assertIn("checkout --detach FETCH_HEAD", setup)
         self.assertIn("launchable/container-entrypoint.sh", setup)
 
+    def test_data_root_avoids_bind_mounting_a_restricted_home_checkout(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")
+        self.assertIn('REPOSITORY_MODE="${NEMOTRON_REPOSITORY_MODE:-auto}"', setup)
+        self.assertIn('[[ "${LOCAL_REPOSITORY_DIR}" == "${DATA_ROOT}"/* ]]', setup)
+        self.assertIn("staging a clean clone for Docker bind mounts", setup)
+        self.assertIn('NEMOTRON_REPOSITORY_MODE=local', setup)
+        self.assertIn("name: NEMOTRON_REPOSITORY_MODE", manifest)
+
     def test_driver_gate_precedes_the_large_container_pull(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
         driver_gate = setup.index("driver_version_at_least")
@@ -44,6 +53,8 @@ class LaunchableTests(unittest.TestCase):
         self.assertLess(container_pull, cuda_smoke)
         self.assertLess(cuda_smoke, jupyter_container)
         self.assertIn("torch.ones(1, device=device)", setup)
+        self.assertIn("Repository bind mount is unreadable", setup)
+        self.assertIn('--ipc=host', setup)
 
     def test_persistent_storage_can_use_a_large_vm_volume(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")

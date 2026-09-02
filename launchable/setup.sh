@@ -9,6 +9,7 @@ JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
 REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotron-fine-tuning.git}"
 REPOSITORY_REF="${NEMOTRON_REPOSITORY_REF:-main}"
+REPOSITORY_MODE="${NEMOTRON_REPOSITORY_MODE:-auto}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_REPOSITORY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPOSITORY_DIR=""
@@ -46,6 +47,14 @@ case "${PREFETCH_MODEL}" in
   0|1) ;;
   *)
     echo "NEMOTRON_PREFETCH_MODEL must be 0 or 1; received '${PREFETCH_MODEL}'." >&2
+    exit 1
+    ;;
+esac
+
+case "${REPOSITORY_MODE}" in
+  auto|local|bootstrap) ;;
+  *)
+    echo "NEMOTRON_REPOSITORY_MODE must be auto, local, or bootstrap; received '${REPOSITORY_MODE}'." >&2
     exit 1
     ;;
 esac
@@ -90,7 +99,23 @@ PY
 }
 
 resolve_repository() {
-  if [ -f "${LOCAL_REPOSITORY_DIR}/launchable/container-entrypoint.sh" ]; then
+  local use_local=0
+  if [ "${REPOSITORY_MODE}" = "local" ]; then
+    use_local=1
+  elif [ "${REPOSITORY_MODE}" = "auto" ] && \
+       [ -f "${LOCAL_REPOSITORY_DIR}/launchable/container-entrypoint.sh" ]; then
+    if [ -z "${DATA_ROOT}" ] || [[ "${LOCAL_REPOSITORY_DIR}" == "${DATA_ROOT}"/* ]]; then
+      use_local=1
+    else
+      echo "The local checkout is outside NEMOTRON_DATA_ROOT; staging a clean clone for Docker bind mounts."
+    fi
+  fi
+
+  if [ "${use_local}" = "1" ]; then
+    if [ ! -f "${LOCAL_REPOSITORY_DIR}/launchable/container-entrypoint.sh" ]; then
+      echo "NEMOTRON_REPOSITORY_MODE=local, but no repository surrounds this setup script." >&2
+      exit 1
+    fi
     REPOSITORY_DIR="${LOCAL_REPOSITORY_DIR}"
     echo "Using the repository that contains this setup script: ${REPOSITORY_DIR}"
     return
@@ -211,10 +236,21 @@ df -h \
 echo "[4/7] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"
 
-echo "[5/7] Validating CUDA inside the pinned container"
-docker run --rm --gpus all --interactive "${IMAGE}" python - <<'PY'
+echo "[5/7] Validating the repository mount and CUDA inside the pinned container"
+docker run --rm \
+  --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  -v "${REPOSITORY_DIR}:/workspace/launchable:ro" \
+  --interactive "${IMAGE}" python - <<'PY'
+from pathlib import Path
+
 import torch
 
+entrypoint = Path("/workspace/launchable/launchable/container-entrypoint.sh")
+if not entrypoint.is_file():
+    raise RuntimeError(f"Repository bind mount is unreadable: {entrypoint}")
 if not torch.cuda.is_available():
     raise RuntimeError("PyTorch cannot initialize CUDA inside the NeMo container.")
 for index in range(torch.cuda.device_count()):

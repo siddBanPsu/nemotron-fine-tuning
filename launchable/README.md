@@ -87,6 +87,13 @@ export NEMOTRON_PREFETCH_MODEL=0
 bash launchable/setup.sh
 ```
 
+With a data root outside the invoking checkout, the default
+`NEMOTRON_REPOSITORY_MODE=auto` fetches a clean repository under
+`$NEMOTRON_DATA_ROOT/repository`. This avoids bind-mount failures when a Docker
+daemon cannot traverse a restricted or root-squashed home directory. Set the
+mode to `local` only when Docker can read that checkout and local uncommitted
+source changes are intentionally required.
+
 For a short-lived non-Brev VM where `/tmp` is confirmed to be a disk with enough
 space, the equivalent opt-in is:
 

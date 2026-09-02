@@ -18,8 +18,10 @@ import torch
 from megatron.bridge.recipes.nemotronh import nemotron_3_5_lightning_peft_config
 from megatron.bridge.training.finetune import finetune
 from megatron.bridge.training.gpt_step import forward_step
+from megatron.core.transformer.moe.router import TopKRouter
 
 from nemotron_ft_lab.constants import MODEL_ID, MODEL_REVISION
+from nemotron_ft_lab.megatron_compat import configure_expert_bias_padding_mask_compatibility
 
 
 def count_packed_sequences(data_dir: Path, sequence_length: int) -> tuple[int, int]:
@@ -122,6 +124,9 @@ def main() -> None:
         raise RuntimeError("Launch train_peft.py with torchrun, even for one GPU.")
     args = parse_args()
     cfg = build_config(args)
+    compatibility_mode = configure_expert_bias_padding_mask_compatibility(TopKRouter)
+    if int(os.environ.get("RANK", "0")) == 0:
+        print(f"Megatron expert-bias padding-mask mode: {compatibility_mode}", flush=True)
     if args.dry_run:
         print("Dry run passed: official PEFT config constructed successfully.")
         return

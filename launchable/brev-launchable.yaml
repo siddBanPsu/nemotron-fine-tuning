@@ -101,7 +101,7 @@ time_budget:
   counted_from: Jupyter ready; scheduled workshops should prefetch before participant time
   notebook_01_minutes: 6-25 on CPU for the default 154-request profile paced at 30 RPM, subject to trial endpoint limits and retries
   notebook_02_minutes: 10-15 on one 80 GB GPU after prefetch
-  notebook_03_minutes: 25-40 target on one H100 80 GB, not yet live-rehearsed
+  notebook_03_minutes: 25-40 target on one H100 80 GB; two visible A100s use TP1/EP2, with final live completion still pending
   notebook_04_minutes: 5-10 design-only; no full-SFT job launches
 
 view_access: anyone_with_link

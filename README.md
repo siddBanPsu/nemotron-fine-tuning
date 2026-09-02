@@ -271,6 +271,14 @@ training runtime and not a dependency of Notebooks 02–04. Replacing it removes
 the hosted Lightning/Ultra comparison; it does not simplify the local training
 stack.
 
+Notebook 03 uses every visible GPU by default: two A100s launch two ranks with
+TP=1 and EP=2, while one 80 GB GPU uses TP=1 and EP=1. Set
+`NEMOTRON_PEFT_NUM_GPUS=1` before starting Jupyter to reserve other visible GPUs.
+The training driver also contains a narrow compatibility check for the pinned
+Bridge/Megatron-Core packed-MoE padding-mask boundary. It prevents the duplicate
+mask expansion that otherwise fails on the first forward pass with
+`broadcast shape (512, 128)`; it does not disable expert bias or change routing.
+
 ## Expected workshop flow
 
 ### Notebook 01 — hosted Lightning and Ultra targets

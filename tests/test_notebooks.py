@@ -67,6 +67,8 @@ class NotebookTests(unittest.TestCase):
         self.assertIn("CLOUD_BASELINE_GLOB = 'baseline_api_*_nvfp4_*_per_label.json'", peft_text)
         self.assertIn("peft_vs_cloud_targets.json", peft_text)
         self.assertIn("tuned Lightning is better", peft_text)
+        self.assertIn("NEMOTRON_PEFT_NUM_GPUS", peft_text)
+        self.assertIn("TP=1, EP={N_GPUS}", peft_text)
 
     def test_gpu_notebooks_require_the_container_jupyter(self):
         for name in ("02_local_bf16_baseline.ipynb", "03_peft_lora.ipynb"):

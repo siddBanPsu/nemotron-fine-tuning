@@ -68,6 +68,14 @@ class LaunchableTests(unittest.TestCase):
         self.assertIn("torch.cuda.is_available()", entrypoint)
         self.assertNotIn("\ntorch", requirements)
 
+    def test_missing_docker_fails_with_standalone_vm_guidance(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        docker_command_check = setup.index("command -v docker")
+        docker_first_use = setup.index("docker info")
+        self.assertLess(docker_command_check, docker_first_use)
+        self.assertIn("Docker Engine plus NVIDIA Container Toolkit", setup)
+        self.assertIn("apptainer singularity enroot podman nerdctl", setup)
+
 
 if __name__ == "__main__":
     unittest.main()

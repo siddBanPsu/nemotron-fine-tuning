@@ -237,7 +237,9 @@ RAM-backed `tmpfs`, use:
 
 ```bash
 findmnt -T /tmp
-df -hT /tmp /var/lib/docker
+df -hT /tmp
+command -v docker
+docker info --format 'Docker root: {{.DockerRootDir}}'
 export NEMOTRON_DATA_ROOT=/tmp/nemotron-fine-tuning
 export NEMOTRON_PREFETCH_MODEL=0
 bash launchable/setup.sh

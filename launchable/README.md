@@ -92,6 +92,8 @@ space, the equivalent opt-in is:
 
 ```bash
 findmnt -T /tmp
+command -v docker
+docker info --format 'Docker root: {{.DockerRootDir}}'
 export NEMOTRON_DATA_ROOT=/tmp/nemotron-fine-tuning
 export NEMOTRON_PREFETCH_MODEL=0
 bash launchable/setup.sh

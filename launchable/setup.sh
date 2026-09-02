@@ -131,6 +131,17 @@ PY
 }
 
 echo "[1/7] Checking GPU, driver, and container runtime"
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is not installed or is not on PATH." >&2
+  echo "This standalone-VM path requires Docker Engine plus NVIDIA Container Toolkit." >&2
+  echo "Brev VM Mode provides both; on a managed cluster, ask the administrator which GPU container runtime is supported." >&2
+  for ALTERNATIVE_RUNTIME in apptainer singularity enroot podman nerdctl; do
+    if command -v "${ALTERNATIVE_RUNTIME}" >/dev/null 2>&1; then
+      echo "Detected alternative runtime: ${ALTERNATIVE_RUNTIME}. This setup script does not invoke it." >&2
+    fi
+  done
+  exit 1
+fi
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv
 mapfile -t DRIVER_VERSIONS < <(
   nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits
@@ -152,7 +163,11 @@ for DRIVER_VERSION in "${DRIVER_VERSIONS[@]}"; do
     echo "The container CUDA smoke test after the pull must pass before Jupyter starts."
   fi
 done
-docker info >/dev/null
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is installed, but the daemon is unavailable or this user lacks access." >&2
+  echo "Run 'docker info' directly for the host-specific error before retrying setup." >&2
+  exit 1
+fi
 if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   echo "Replacing existing ${CONTAINER_NAME} container"
   docker rm -f "${CONTAINER_NAME}" >/dev/null

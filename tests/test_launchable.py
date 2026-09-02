@@ -17,6 +17,9 @@ class LaunchableTests(unittest.TestCase):
         self.assertIn("jupyter_port: 8889", manifest)
         self.assertIn("port: 8889", manifest)
         self.assertIn('default: "8889"', manifest)
+        self.assertIn("Jupyter is listening on VM loopback port", setup)
+        self.assertIn("ssh -N -L", setup)
+        self.assertIn("http://127.0.0.1:${JUPYTER_PORT}/lab/tree/notebooks/01_cloud_api_baseline.ipynb", setup)
 
     def test_pasted_brev_script_bootstraps_the_repository(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")

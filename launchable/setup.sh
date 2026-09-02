@@ -305,7 +305,12 @@ docker run --detach \
 echo "[7/7] Waiting for Jupyter readiness"
 for _ in $(seq 1 1080); do
   if curl --fail --silent "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
-    echo "Ready: open the Brev Secure Link on port ${JUPYTER_PORT}."
+    echo "Ready: Jupyter is listening on VM loopback port ${JUPYTER_PORT}."
+    echo "Brev: open the authenticated Secure Link configured for port ${JUPYTER_PORT}."
+    echo "Standalone VM: from your workstation run:"
+    echo "  ssh -N -L ${JUPYTER_PORT}:127.0.0.1:${JUPYTER_PORT} USER@VM_HOST"
+    echo "Then open:"
+    echo "  http://127.0.0.1:${JUPYTER_PORT}/lab/tree/notebooks/01_cloud_api_baseline.ipynb"
     echo "Landing notebook: notebooks/01_cloud_api_baseline.ipynb"
     exit 0
   fi

@@ -9,7 +9,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
     "README.md",
@@ -21,7 +20,9 @@ REQUIRED = [
     "notebooks/02_local_bf16_baseline.ipynb",
     "notebooks/03_peft_lora.ipynb",
     "notebooks/04_full_finetuning_design.ipynb",
-    "scripts/prepare_banking77.py",
+    "scripts/prepare_text2sql.py",
+    "scripts/evaluate_vllm.py",
+    "scripts/build_notebooks.py",
     "scripts/train_peft.py",
     "scripts/train_full.py",
 ]
@@ -87,6 +88,9 @@ def main() -> None:
         and not excluded_parts.intersection(path.relative_to(ROOT).parts)
         and (path.suffix in source_suffixes or path.name in source_names)
     ]
+    tracked_text = "\n".join(path.read_text(encoding="utf-8", errors="ignore") for path in source_files)
+    if "BANK" + "ING77" in tracked_text or "B77" + "_" in tracked_text:
+        raise RuntimeError("Legacy opaque intent-routing task references remain in the repository.")
     secret_patterns = [
         re.compile(r"hf_[A-Za-z0-9]{20,}"),
         re.compile(r"nvapi-[A-Za-z0-9_-]{16,}"),
@@ -96,9 +100,7 @@ def main() -> None:
         source_text = path.read_text(encoding="utf-8", errors="ignore")
         for pattern in secret_patterns:
             if pattern.search(source_text):
-                raise RuntimeError(
-                    f"Potential secret matched {pattern.pattern} in {path.relative_to(ROOT)}"
-                )
+                raise RuntimeError(f"Potential secret matched {pattern.pattern} in {path.relative_to(ROOT)}")
 
     print("Repository validation passed.")
 

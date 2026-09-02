@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -11,15 +10,17 @@ class LaunchableTests(unittest.TestCase):
     def test_brev_host_port_avoids_managed_jupyter_default(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
         manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")
-        self.assertIn('NEMOTRON_JUPYTER_PORT:-8889', setup)
-        self.assertIn('127.0.0.1:${JUPYTER_PORT}:8888', setup)
+        self.assertIn("NEMOTRON_JUPYTER_PORT:-8889", setup)
+        self.assertIn("127.0.0.1:${JUPYTER_PORT}:8888", setup)
         self.assertIn("port_is_free", setup)
         self.assertIn("jupyter_port: 8889", manifest)
         self.assertIn("port: 8889", manifest)
         self.assertIn('default: "8889"', manifest)
         self.assertIn("Jupyter is listening on VM loopback port", setup)
         self.assertIn("ssh -N -L", setup)
-        self.assertIn("http://127.0.0.1:${JUPYTER_PORT}/lab/tree/notebooks/01_cloud_api_baseline.ipynb", setup)
+        self.assertIn(
+            "http://127.0.0.1:${JUPYTER_PORT}/lab/tree/notebooks/01_cloud_api_baseline.ipynb", setup
+        )
 
     def test_pasted_brev_script_bootstraps_the_repository(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
@@ -35,7 +36,7 @@ class LaunchableTests(unittest.TestCase):
         self.assertIn('REPOSITORY_MODE="${NEMOTRON_REPOSITORY_MODE:-auto}"', setup)
         self.assertIn('[[ "${LOCAL_REPOSITORY_DIR}" == "${DATA_ROOT}"/* ]]', setup)
         self.assertIn("staging a clean clone for Docker bind mounts", setup)
-        self.assertIn('NEMOTRON_REPOSITORY_MODE=local', setup)
+        self.assertIn("NEMOTRON_REPOSITORY_MODE=local", setup)
         self.assertIn("name: NEMOTRON_REPOSITORY_MODE", manifest)
 
     def test_driver_gate_precedes_the_large_container_pull(self):
@@ -57,22 +58,22 @@ class LaunchableTests(unittest.TestCase):
         self.assertLess(cuda_smoke, jupyter_container)
         self.assertIn("torch.ones(1, device=device)", setup)
         self.assertIn("Repository bind mount is unreadable", setup)
-        self.assertIn('--ipc=host', setup)
+        self.assertIn("--ipc=host", setup)
 
     def test_persistent_storage_can_use_a_large_vm_volume(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
         manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")
         self.assertIn('DATA_ROOT="${NEMOTRON_DATA_ROOT:-}"', setup)
-        self.assertIn('${NEMOTRON_STORAGE_DIR:-${DATA_ROOT}/storage}', setup)
-        self.assertIn('${NEMOTRON_HF_CACHE_DIR:-${DATA_ROOT}/huggingface}', setup)
-        self.assertIn('${NEMOTRON_ARTIFACTS_DIR:-${DATA_ROOT}/artifacts}', setup)
-        self.assertIn('${NEMOTRON_CACHE_DIR:-${DATA_ROOT}/cache}', setup)
-        self.assertIn('${NEMOTRON_TEMP_DIR:-${DATA_ROOT}/tmp}', setup)
-        self.assertIn('${ARTIFACTS_DIR}:/workspace/launchable/artifacts', setup)
-        self.assertIn('${CACHE_DIR}:/workspace/cache', setup)
-        self.assertIn('${TEMP_DIR}:/workspace/tmp', setup)
-        self.assertIn('TMPDIR=/workspace/tmp', setup)
-        self.assertIn('TRITON_CACHE_DIR=/workspace/cache/triton', setup)
+        self.assertIn("${NEMOTRON_STORAGE_DIR:-${DATA_ROOT}/storage}", setup)
+        self.assertIn("${NEMOTRON_HF_CACHE_DIR:-${DATA_ROOT}/huggingface}", setup)
+        self.assertIn("${NEMOTRON_ARTIFACTS_DIR:-${DATA_ROOT}/artifacts}", setup)
+        self.assertIn("${NEMOTRON_CACHE_DIR:-${DATA_ROOT}/cache}", setup)
+        self.assertIn("${NEMOTRON_TEMP_DIR:-${DATA_ROOT}/tmp}", setup)
+        self.assertIn("${ARTIFACTS_DIR}:/workspace/launchable/artifacts", setup)
+        self.assertIn("${CACHE_DIR}:/workspace/cache", setup)
+        self.assertIn("${TEMP_DIR}:/workspace/tmp", setup)
+        self.assertIn("TMPDIR=/workspace/tmp", setup)
+        self.assertIn("TRITON_CACHE_DIR=/workspace/cache/triton", setup)
         self.assertIn("name: NEMOTRON_DATA_ROOT", manifest)
 
     def test_torch_is_verified_from_the_nemo_image_not_host_installed(self):

@@ -1,80 +1,99 @@
-# Nemotron 3.5 Lightning fine-tuning lab for Brev
+# Nemotron 3.5 Lightning Text2SQL fine-tuning lab
 
-This repository is a four-notebook, API-first and Brev-ready workshop for
-`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`:
+This is a four-notebook, API-first and Brev-ready lab for adapting
+`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` to Text2SQL:
 
-1. benchmark hosted Lightning and Nemotron Ultra NVFP4 without a GPU;
-2. load the pinned local BF16 checkpoint and freeze the exact tuning baseline;
-3. fine-tune with LoRA PEFT on one 80 GB GPU, measure the paired accuracy delta,
-   and test whether specialized Lightning reaches or beats hosted Ultra;
-4. study true full-parameter SFT as a design-only multi-GPU handoff.
+1. benchmark hosted Nemotron 3.5 Lightning and Nemotron 3 Ultra on executable SQL;
+2. run the exact local BF16 baseline with vLLM;
+3. fine-tune Lightning with LoRA using NVIDIA's official Text2SQL recipe, merge it,
+   and measure the paired held-out gain;
+4. inspect true full-parameter SFT as a design-only multi-GPU handoff.
 
-Notebook 01 can run before renting a GPU. The practical Brev path is Notebooks
-02–03 on one 80 GB GPU plus Notebook 04's short design exercise. Actual
-full-parameter training is not part of the ordinary single-GPU Launchable.
+The practical workshop is Notebooks 01–03. Notebook 01 needs no GPU. With the
+model prefetched, Notebook 03's bounded 4,096-example/64-step profile is intended
+to leave time for merge and evaluation within a one-hour GPU exercise on an
+80 GB-class H100 or a sharded 2×A100/H100 allocation. Runtime still depends on
+the exact GPU, storage, network, and container startup.
 
-## Why this exercise is worth running
+## Why Text2SQL is a better fine-tuning exercise
 
-The dataset is [PolyAI BANKING77](https://huggingface.co/datasets/PolyAI/banking77),
-a CC BY 4.0 collection of 13,083 online-banking support queries across 77
-fine-grained intents. It has an official 10,003-row train split and 3,080-row
-test split.
+The previous opaque intent-code task could reduce training loss while collapsing
+onto a few labels. This rebuild measures useful generated text instead:
 
-The lab converts each natural label to an opaque internal code such as
-`B77_61`. A fixed recorded permutation prevents the public category order from
-leaking the mapping. The model is told only to return one valid route code; it
-is not given the label-to-code mapping at evaluation time. That represents a useful
-enterprise adaptation problem: a capable base model may understand “my card
-has not arrived,” but it cannot know the organization's private routing code
-until it learns the taxonomy.
+- input: real database DDL, a natural-language question, and optional business evidence;
+- output: executable SQLite SQL;
+- primary metric: whether predicted and reference SQL return the same result;
+- secondary diagnostics: parse validity, executability, normalized SQL exact match,
+  and accuracy by BIRD difficulty;
+- proof: local BF16 and LoRA are scored on the identical frozen IDs with a paired
+  bootstrap confidence interval.
 
-The proof is deliberately strict:
+The training path follows NVIDIA's official
+[Nemotron 3.5 Lightning Text2SQL LoRA cookbook](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3.5-Lightning/lora-text2sql/nemo-megatron-bridge):
+BIRD direct and reasoning examples, the model's native chat template, packed
+sequences, the shipped Lightning LoRA target modules, Megatron distributed
+checkpoints, adapter merge, and vLLM serving. The lab pins the reviewed cookbook,
+model, datasets, and Megatron-Bridge revisions in code.
 
-- train/validation rows come only from the official train split;
-- evaluation rows come only from the official test split;
-- deterministic stratified sampling gives every label equal weight;
-- the manifest records every selected ID;
-- every model is scored on the same frozen prompts;
-- exact route-code accuracy and valid-code rate are reported separately;
-- tuned-minus-baseline accuracy uses a paired bootstrap confidence interval on
-  identical example IDs.
+The training driver records the data hash, model revision, topology, schedule,
+and LoRA settings beside the checkpoint. It refuses an incompatible resume;
+choose a new output directory when changing an experiment.
 
-The default cloud profile selects one frozen example from every label and gives
-each request five lexically retrieved demonstrations drawn only from the
-training split: 77 requests per model, or 154 across Lightning and Ultra. It
-does not take the first 77 rows, because prepared rows are grouped by label.
-Notebook 01 also implements a complete taxonomy prompt and the original opaque
-zero-shot prompt. The `prompt_only` profile runs taxonomy plus retrieval (308
-calls); `full` runs all three prompt conditions (462 calls). Changing from one
-to three evaluation examples per label multiplies those totals by three. The
-local BF16 before/after evaluation remains at 231 rows.
+## Data and evaluation contract
 
-A lower training loss is not counted as higher accuracy. If the saved
-held-out score does not improve, the notebook says that no gain was
-demonstrated.
+Training uses only the two BIRD train mirrors used by NVIDIA's cookbook:
+
+- `xu3kev/BIRD-SQL-data-train` (9,428 direct-SQL rows before filtering);
+- `meowterspace45/bird-sql-train-with-reasoning` (reasoning-augmented train rows).
+
+The workshop shuffles the combined sources before rendering, filters examples
+longer than 2,048 tokens, keeps 4,096 rows, sorts them by length, and writes the
+Megatron prompt-completion JSONL plus a source/revision/hash manifest.
+With the pinned inputs, this produces 2,798 direct and 1,298 reasoning rows,
+4,000,344 tokens, and an estimated 1,954 packed sequences: 62 steps at GBS 32.
+
+Evaluation uses only official
+[BIRD Mini-Dev](https://github.com/bird-bench/mini_dev). The first run downloads
+the official ~800 MB package containing 11 SQLite databases and freezes 100 of
+the 500 SELECT-only Mini-Dev questions. The subset preserves the benchmark's
+simple/moderate/challenging ratio and spreads examples across every database.
+Question 701 is excluded by protocol because its official gold query exceeded
+the 30-second audit timeout. The exclusion and protocol version are pinned in
+the manifest; preparation fails instead of silently resampling on a slower host.
+Notebook 01 takes a second deterministic 25-row subset for each hosted model,
+so the normal cloud workload is 50 requests total under the public 40-RPM quota.
+
+Execution scoring opens every SQLite database read-only, accepts only one parsed
+`SELECT`/`WITH` statement, enforces a timeout and row cap, and uses the official
+BIRD Mini-Dev set-of-result-rows equality rule. This is more meaningful than SQL
+string match, while normalized exact match remains available for diagnosis.
+
+No benchmark guarantees that one short run will improve a strong base model.
+The notebook prints “no held-out gain demonstrated” when the paired result does
+not improve; loss reduction alone is never presented as success.
 
 ## Hardware and honest scope
 
-Nemotron 3.5 Lightning is a hybrid Mamba-2/attention sparse-MoE model with 30B
-total parameters and roughly 3B active parameters per token. NVIDIA describes
-the BF16 checkpoint as the customization starting point and supports
-single-H100/A100-80 inference. Sparse activation lowers compute, but all 30B
-weights still exist in memory.
+Nemotron 3.5 Lightning has 30B total and roughly 3B active parameters per token.
+Sparse activation reduces compute, but all weights still occupy memory.
 
-| Path | Suggested hardware | Workshop setting | Status |
-| --- | --- | --- | --- |
-| Hosted API targets | CPU only plus NVIDIA API key | 154 calls by default; paced at 30 RPM (about 5.2 minutes minimum); 308 for both prompt-only competitors; 462 for the three-condition smoke matrix | No model hosting; trial endpoint availability and limits apply |
-| Exact local baseline | 1× H100 80 GB or A100 80 GB | Same 231 IDs using pinned BF16 | Required scientific baseline for the PEFT delta |
-| LoRA PEFT | 1× H100 80 GB | 512-token packing, ≤40 steps, rank 16 | Derived from NVIDIA's official single-H100 Megatron-Bridge cookbook |
-| Full-SFT design | Any notebook host | Memory arithmetic, topology, handoff command | Does not launch training |
-| Full-SFT external target | ≥8× H100 80 GB code gate | 512 tokens, 40 steps, TP1/EP8 | Driver exists; not claimed live-validated here |
-| NVIDIA verified full SFT reference | 16× H100 80 GB | 4K packed, 100 steps, TP2/EP8 | NVIDIA verification card reports ~9.9 s/step for its OpenMathInstruct-2 run |
+| Path | Hardware | Default scope |
+| --- | --- | --- |
+| Hosted Lightning + Ultra | CPU and NVIDIA API key | 25 frozen rows/model; 50 calls total at 30 RPM |
+| Local BF16 baseline | 1× H100/A100 80 GB | vLLM on all 100 frozen rows |
+| LoRA workshop | 1× H100 80 GB or 2×A100/H100 80 GB | 4,096 rows, 2K packing, GBS 32, rank 32, ≤64 steps |
+| Full-SFT notebook | Any notebook host | memory/topology design only; launches nothing |
+| External full SFT | ≥16×H100 80 GB / ≥1,200 GiB aggregate VRAM | hardware-gated driver; separately rehearse |
 
-One 80 GB GPU can hold roughly 60 GB of BF16 weights, but full AdamW training
-also needs gradients, FP32 master weights and moments, activations, and
-workspaces. Notebook 04 never launches training, and `scripts/train_full.py`
-hard-fails below 8 GPUs/600 GiB aggregate VRAM so “full fine-tuning” cannot
-silently become LoRA.
+NVIDIA reports the complete 12,544-example official LoRA epoch at about 60
+minutes on one H100, 34 minutes on two, 18 on four, and 8 on eight, with roughly
+79/51/35/27 GB peak memory per GPU. On one GPU, its runbook reduces the model to
+the checkpoint's single MTP head; this lab does the same. These are NVIDIA's H100
+measurements, not claimed A100 timings.
+
+Full AdamW needs BF16 weights and gradients plus FP32 master weights/moments,
+activations, communication buffers, and workspaces. Notebook 04 does not pretend
+that a one-GPU Launchable can perform full SFT.
 
 ## Repository layout
 
@@ -84,66 +103,26 @@ notebooks/
   02_local_bf16_baseline.ipynb
   03_peft_lora.ipynb
   04_full_finetuning_design.ipynb
-launchable/
-  brev-launchable.yaml
-  setup.sh
-  container-entrypoint.sh
 scripts/
-  prepare_banking77.py
+  prepare_text2sql.py       # BIRD train + executable Mini-Dev bundle
+  evaluate_vllm.py          # isolated local generation and SQL execution
   convert_checkpoint.py
   train_peft.py
   train_full.py
   export_full_checkpoint.py
-  preflight.py
 src/nemotron_ft_lab/
+launchable/
 tests/
 ```
 
-Large or generated files go under ignored `artifacts/`, `checkpoints/`,
-`storage/`, the Hugging Face cache, or `/workspace/storage` in the container.
-No credentials belong in this repository.
+Generated datasets, reports, model caches, converted checkpoints, adapters, and
+merged exports are ignored by Git. No model weights, databases, API responses,
+or credentials are redistributed by this repository.
 
-## Public and private API profiles
+## Notebook 01 on a laptop or CPU VM
 
-Notebook 01 uses the tracked public endpoint and model identifiers by default.
-For an internal or faster OpenAI-compatible endpoint, create the ignored local
-configuration:
-
-```bash
-cp config/api.local.toml.example config/api.local.toml
-```
-
-Edit `config/api.local.toml` with the private base URL, Lightning and Ultra
-model identifiers, safe request rate, and timeout. Do not put an API key in the
-file; continue to use `NVIDIA_API_KEY`. The notebook auto-selects the local file
-when present. Inside Notebook 01, use the single configuration switch and
-rerun that cell plus the authentication cell:
-
-```python
-API_PROFILE_OVERRIDE = "local"    # internal URL and IDs
-# API_PROFILE_OVERRIDE = "public" # tracked public URL and IDs
-# API_PROFILE_OVERRIDE = None     # auto: local file if present, otherwise public
-```
-
-This does not require a Jupyter restart. For a startup-level public selection,
-use:
-
-```bash
-NEMOTRON_API_PROFILE=public jupyter lab notebooks/01_cloud_api_baseline.ipynb
-```
-
-For a configuration stored elsewhere, set `NEMOTRON_API_CONFIG` to its absolute
-or repository-relative path. Individual `NEMOTRON_API_BASE_URL`, model-ID,
-model-variant, request-rate, and timeout environment overrides are also
-supported; see [.env.example](.env.example). Non-public profiles receive a
-separate artifact prefix, so private responses cannot overwrite or resume from
-the public baseline. Keep notebook outputs cleared before committing because
-runtime output displays the selected endpoint and model identifiers.
-
-## Run Notebook 01 without Brev or a GPU
-
-Notebook 01 needs Python 3.12, network access, a small tokenizer download, and
-an NVIDIA API key—but no CUDA runtime or model weights:
+Use Python 3.12. The lightweight environment deliberately does not install
+PyTorch, CUDA, NeMo, Megatron, or vLLM:
 
 ```bash
 python3.12 -m venv .venv-api
@@ -152,216 +131,96 @@ python -m pip install -r requirements-lab.txt --editable .
 jupyter lab notebooks/01_cloud_api_baseline.ipynb
 ```
 
-Prefer exporting `NVIDIA_API_KEY` before starting Jupyter. Alternatively,
-Notebook 01 uses Jupyter's native `input()` prompt: paste the key and press
-**Enter**. This bypasses the unreliable `ipywidgets` layer in some notebook
-frontends. The key is briefly visible during entry, then the prompt is cleared.
-Generated API responses and reports remain under ignored `artifacts/`, or under
-`NEMOTRON_ARTIFACTS_DIR` when that override is set.
-The evaluator checkpoints every response, defaults to 30 RPM under the public
-40-RPM quota, and automatically resumes after a `429` or notebook interruption.
+Export `NVIDIA_API_KEY` before starting Jupyter, or paste it into the notebook's
+native `input()` prompt and press Enter. The prompt is cleared after connection.
+The evaluator paces public requests at 30 RPM, honors retry headers after a 429,
+and checkpoints every successful response.
+
+### Public versus internal API endpoints
+
+Public settings are tracked. For a private/faster OpenAI-compatible endpoint:
+
+```bash
+cp config/api.local.toml.example config/api.local.toml
+```
+
+Edit only the private base URL, Lightning/Ultra model IDs, served-variant labels,
+rate, and timeout. Keep `NVIDIA_API_KEY` in the process environment. In Notebook
+01, change one line and rerun configuration plus authentication:
+
+```python
+API_PROFILE_OVERRIDE = "local"   # or "public"; None selects local if present
+```
+
+Private/public caches include a short hash of the endpoint and model ID, so a
+configuration change cannot resume stale responses. Environment overrides in
+[.env.example](.env.example) support configs stored outside the checkout.
 
 ## Brev quick start
 
-Use [launchable/README.md](launchable/README.md) to create the Brev Console
-Launchable. The checked-in manifest recommends:
+Follow [launchable/README.md](launchable/README.md). The Launchable uses:
 
-- VM mode;
-- one H100 80 GB, 128 GB host RAM, and 300 GB disk for Notebooks 02–03;
-- `nvcr.io/nvidia/nemo:26.08`;
-- NVIDIA driver 580.65.06 or newer on the Brev host for CUDA 13.x minor-version
-  compatibility; 610.43.02 or newer is the container's native driver level;
-- a Brev-authenticated Jupyter Secure Link on host port 8889;
-- model prefetch enabled for scheduled workshops, or disabled for an immediate
-  API-first start.
+- VM mode and a recommended H100 80 GB (or a rehearsed A100 80 GB alternative);
+- `nvcr.io/nvidia/nemo:26.08`, which supplies the matched Python 3.12,
+  PyTorch/CUDA/Transformer Engine/Megatron stack;
+- NVIDIA driver 580.65.06+ for CUDA 13.x minor-version compatibility, with a real
+  in-container CUDA smoke test before Jupyter starts;
+- the pinned Megatron-Bridge revision and the live-validated MoE padding-mask
+  compatibility hook;
+- a Brev Secure Link on host port 8889;
+- persistent cache, data, artifacts, checkpoints, and temporary directories.
 
-The setup script starts an isolated NeMo container whose image already contains
-PyTorch and the matched CUDA libraries, pins Megatron-Bridge source,
-bootstraps the public repository when Brev runs the pasted script outside a Git
-checkout, mounts persistent cache/checkpoint storage, verifies that both Lightning
-training recipes import, and opens Notebook 01. Model prefetch now defaults to
-off so the hosted API baseline opens immediately; set
-`NEMOTRON_PREFETCH_MODEL=1` for a scheduled workshop to download and convert the
-reusable BF16 checkpoint before Jupyter starts. Prefer the process environment
-for the API key; Notebook 01 falls back to Jupyter's native `input()` channel
-rather than third-party widgets. The prompt is cleared after connection and the
-key is never written to evaluation artifacts. The public Hugging Face model and
-dataset usually require no secret.
+Notebook 01 can run in a host `.venv`; Notebooks 02–03 must run in the container
+Jupyter opened on port 8889. Do not install `torch` into the host environment to
+repair a GPU notebook—it is the wrong interpreter boundary.
 
-Notebook 01 can use the repository's lightweight host `.venv`. Notebooks 02–03
-must use the Python kernel served from the NeMo container through the Brev
-Secure Link on host port 8889. Host-managed Jupyter on port 8888 does not carry
-the pinned PyTorch/CUDA/Megatron training stack.
-
-The preflight deliberately exits before pulling the large container if
-`nvidia-smi` reports a driver older than 580.65.06. R580 through R609 use CUDA
-13.x minor-version compatibility, so setup performs a real PyTorch CUDA tensor
-operation inside the pinned container before starting Jupyter. This allows an
-A100 on R595 to proceed while still rejecting the incompatible R565 image. An
-older NeMo tag is not a drop-in workaround for this repository's pinned
-Megatron-Bridge recipe and Python/PyTorch stack.
-
-## Run without Brev
-
-Use a compatible Linux NVIDIA GPU host with Docker, NVIDIA Container Toolkit,
-enough RAM/disk, and the same NeMo 26.08 container. The intended workshop target
-is Linux x86_64; an ARM SBSA host must independently pass
-the image pull, CUDA smoke test, recipe import, and target-GPU rehearsal. From
-the repository root, the Launchable's container command is the reference.
-
-Do **not** install `torch`, CUDA libraries, NeMo, or Megatron-Bridge into the
-lightweight host `.venv`. That environment is only for Notebook 01. The GPU
-notebooks run in the pinned container, which already supplies the matched
-PyTorch, CUDA, Transformer Engine, Megatron-Core, and Megatron-Bridge stack.
-
-On a VM with a separate large filesystem, point all repository-controlled large
-writes at it before setup. Replace `/path/to/large-volume` with an existing
-absolute mount path:
+For a scheduled workshop, prefetch the ~62 GB BF16 model and convert it before
+participant time:
 
 ```bash
-df -hT "$HOME" /var/lib/docker /path/to/large-volume
-export NEMOTRON_DATA_ROOT=/path/to/large-volume/nemotron-fine-tuning
-NEMOTRON_PREFETCH_MODEL=1 bash launchable/setup.sh
+export NEMOTRON_PREFETCH_MODEL=1
+bash launchable/setup.sh
 ```
 
-`NEMOTRON_DATA_ROOT` places checkpoints, Hugging Face files, notebook artifacts,
-runtime caches, and temporary files in its `storage/`, `huggingface/`,
-`artifacts/`, `cache/`, and `tmp/` subdirectories. It also places the bootstrap
-clone there when Brev runs the lifecycle script outside a checkout. In `auto`
-repository mode it also uses that clean clone when the invoking checkout is
-outside the data root; this avoids Docker bind-mount failures on restricted or
-root-squashed home directories. Individual
-`NEMOTRON_*_DIR` variables remain available for advanced overrides. Docker's
-own image layers remain under its daemon data root, commonly `/var/lib/docker`,
-which also needs enough free space.
+Use `NEMOTRON_PREFETCH_MODEL=0` for the fastest API-first startup. The Mini-Dev
+archive is downloaded only when Notebook 01 or 02 prepares evaluation data.
 
-For a disposable standalone VM whose `/tmp` is a large disk rather than a small
-RAM-backed `tmpfs`, use:
+## Large-volume storage
+
+The model, converted checkpoint, merged export, caches, Mini-Dev databases, and
+temporary files need substantial disk. NVIDIA's official LoRA cookbook asks for
+about 130 GB before the merged export; provision at least 300 GB for this lab.
+On a VM with a large mounted volume:
 
 ```bash
-findmnt -T /tmp
-df -hT /tmp
-command -v docker
-docker info --format 'Docker root: {{.DockerRootDir}}'
-export NEMOTRON_DATA_ROOT=/tmp/nemotron-fine-tuning
+export NEMOTRON_DATA_ROOT=/path/to/large-volume/nemotron-fine-tuning
 export NEMOTRON_PREFETCH_MODEL=0
 bash launchable/setup.sh
 ```
 
-The default `NEMOTRON_REPOSITORY_MODE=auto` stages the public repository under
-`/tmp/nemotron-fine-tuning/repository` for this layout. Use `local` only when
-Docker can read the invoking checkout and uncommitted local source changes must
-be mounted; use `bootstrap` to always fetch `NEMOTRON_REPOSITORY_REF`.
+This routes repository-controlled large writes under that root. Docker image
+layers remain under Docker's own data root, commonly `/var/lib/docker`, which
+also needs capacity. `/tmp` is acceptable for a disposable VM only when it is a
+large disk rather than RAM-backed `tmpfs`; copy reports/checkpoints elsewhere
+before shutdown.
 
-Rerun with prefetch set to `1` after the container and CUDA checks pass. `/tmp`
-is not a persistence boundary: copy reports or checkpoints elsewhere before the
-VM is stopped, rebooted, or reclaimed. On Brev, prefer the instance's configured
-persistent workspace/storage and provision the Launchable's 300 GiB disk rather
-than selecting `/tmp`.
+## Verify the repository
 
-Open `http://localhost:8889` only through authenticated SSH forwarding or a
-trusted local interface. The setup disables Jupyter's own token because Brev's
-Secure Link supplies the access boundary; do not expose host port 8889 or
-container port 8888 publicly.
-
-This is already an SDK-based training lab: `scripts/train_peft.py` and
-`scripts/train_full.py` call the NeMo Megatron-Bridge Python training APIs. The
-hosted NVIDIA API in Notebook 01 is an optional baseline/comparator, not the
-training runtime and not a dependency of Notebooks 02–04. Replacing it removes
-the hosted Lightning/Ultra comparison; it does not simplify the local training
-stack.
-
-Notebook 03 uses every visible GPU by default: two A100s launch two ranks with
-TP=1 and EP=2, while one 80 GB GPU uses TP=1 and EP=1. Set
-`NEMOTRON_PEFT_NUM_GPUS=1` before starting Jupyter to reserve other visible GPUs.
-The training driver also contains a narrow compatibility check for the pinned
-Bridge/Megatron-Core packed-MoE padding-mask boundary. It prevents the duplicate
-mask expansion that otherwise fails on the first forward pass with
-`broadcast shape (512, 128)`; it does not disable expert bias or change routing.
-
-## Expected workshop flow
-
-### Notebook 01 — hosted Lightning and Ultra targets
-
-- run without CUDA or model weights;
-- prepare 1,925 training, 385 validation, and 231 held-out test rows by
-  default;
-- select a correct one-example-per-label smoke set by default (77 rows);
-- compare opaque zero-shot, full taxonomy-in-prompt, and training-only
-  retrieved-demonstration conditions without test leakage;
-- default to the retrieved-demonstration condition so the normal two-model run
-  remains 154 calls;
-- call NVIDIA's hosted Lightning and Ultra NVFP4 endpoints with thinking disabled;
-- checkpoint individual responses for safe resume;
-- save model-, prompt-, and sample-profile-specific reports such as
-  `baseline_api_ultra_nvfp4_retrieved_few_shot_v1_5d_1_per_label.json`;
-- compare Ultra minus Lightning under identical prompt conditions and IDs.
-
-### Notebook 02 — exact local BF16 baseline
-
-- verify the 80 GB GPU and pinned checkpoint revision;
-- rebuild or reuse the identical deterministic data bundle;
-- inspect an ordinary local BF16 answer;
-- evaluate the same 231 IDs;
-- save `artifacts/evaluation/baseline_local_bf16.json`.
-
-Repeating the baseline is necessary: comparing a hosted NVFP4 service with a
-tuned BF16-derived checkpoint would confound quantization and serving with
-fine-tuning.
-
-### Notebook 03 — PEFT
-
-- import the pinned Hugging Face weights once into Megatron format;
-- run NVIDIA's model-specific Lightning LoRA recipe;
-- train at most 40 packed steps;
-- merge the adapter into a normal Hugging Face checkpoint;
-- score the identical test IDs and print the absolute accuracy gain;
-- save `artifacts/evaluation/peft.json`;
-- align tuned Lightning to each cloud report's exact IDs and save
-  `artifacts/evaluation/peft_vs_cloud_targets.json`.
-
-The Ultra comparison is deliberately narrow. Beating a 550B/55B-active general
-model on an opaque private-routing taxonomy demonstrates the value of
-specialization; it does not mean the tuned 30B/3B-active Lightning model is
-generally stronger than Ultra. A paired interval that crosses zero is reported
-as inconclusive, not as proof of equivalence.
-
-### Notebook 04 — full-SFT design
-
-- calculate why full AdamW state does not fit on one GPU;
-- inspect TP/EP/DP topology and all-parameter trainable scope;
-- print, but never execute, the minimum multi-GPU handoff command;
-- define the evidence contract an external full-SFT run must return.
-
-## Validation
-
-Local validation checks notebook JSON/code syntax, shell syntax, Python syntax,
-imports, API resume behavior, data-split helpers, scoring, required files,
-secret hygiene, and the full-SFT design-only gate:
+From the lightweight Python 3.12 environment:
 
 ```bash
-python3 scripts/validate_repo.py
-python3 -m unittest discover -s tests -v
+python scripts/build_notebooks.py
+python scripts/validate_repo.py
+python -m unittest discover -s tests
 ```
 
-These checks do not prove target-GPU memory use, runtime, accuracy gain,
-checkpoint merge/export, or Brev Secure Link behavior. Record those only after
-a fresh live rehearsal.
+GPU correctness still requires the target container: import checks, conversion,
+the training dry run, vLLM startup, and a short live train/evaluate rehearsal
+cannot be proven by laptop unit tests.
 
 ## Primary references
 
-- [NVIDIA Nemotron 3.5 Lightning BF16 model card](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16)
-- [NVIDIA hosted Lightning API page](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b)
-- [NVIDIA hosted NVFP4 API reference](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-5-lightning-30b-a3b)
-- [NVIDIA hosted Nemotron 3 Ultra model card](https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b/modelcard)
-- [NVIDIA hosted Nemotron 3 Ultra API reference](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-ultra-550b-a55b)
-- [NVIDIA Nemotron 3.5 Lightning training recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/docs/nemotron/lightning35)
-- [NVIDIA Megatron-Bridge Lightning recipes and verification card](https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/model_verification_cards/nemotron-3.5-lightning)
-- [NVIDIA Lightning Text2SQL LoRA cookbook](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3.5-Lightning/lora-text2sql)
-- [NVIDIA CUDA DL 26.08 release notes](https://docs.nvidia.com/deeplearning/frameworks/cuda-dl-release-notes/rel-26-08.html)
-- [NVIDIA CUDA minor-version compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html)
-- [BANKING77 dataset card](https://huggingface.co/datasets/PolyAI/banking77)
-- [BANKING77 paper](https://aclanthology.org/2020.nlp4convai-1.5/)
-
-The NVIDIA model is governed by OpenMDW 1.1. BANKING77 is CC BY 4.0; retain
-dataset attribution when adapting or redistributing prepared examples.
+- [Nemotron 3.5 Lightning usage cookbook](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-3.5-Lightning/README.md)
+- [Official Lightning LoRA Text2SQL recipe](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3.5-Lightning/lora-text2sql/nemo-megatron-bridge)
+- [Nemotron 3.5 Lightning BF16 model card](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16)
+- [BIRD Mini-Dev benchmark](https://github.com/bird-bench/mini_dev)

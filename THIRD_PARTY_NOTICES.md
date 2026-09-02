@@ -1,33 +1,52 @@
 # Third-party inputs and attribution
 
-## NVIDIA Nemotron 3.5 Lightning
+## NVIDIA Nemotron 3.5 Lightning and Ultra
 
-- Model: `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`
-- Governing terms: OpenMDW License Agreement 1.1, linked from the model card
-- Model revision used by the lab: `b3caaabed0263651a17dc1f2d4ce97e794f76c44`
+- Customization model: `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`
+- Pinned model revision: `b3caaabed0263651a17dc1f2d4ce97e794f76c44`
+- Model terms: OpenMDW License Agreement 1.1, linked from the model card
+- Official Text2SQL cookbook: `NVIDIA-NeMo/Nemotron`
+- Cookbook revision followed by the lab: `ccbea41e1ccb8a9bda9169ca83f19d18e39b9cdc`
+- Megatron-Bridge runtime revision: `8bc33cd2ca1cd044e1520130f4c5e1f5e0181434`
 
-The training drivers are original workshop glue around public NVIDIA
-Megatron-Bridge recipe APIs. Their structure follows the public Lightning 3.5
-LoRA/full-SFT cookbooks and uses no redistributed NVIDIA model weights.
+The preparation/training drivers are workshop glue around NVIDIA's public
+Megatron-Bridge recipe APIs. They preserve the official Text2SQL prompt layout,
+packed-sequence LoRA design, recipe-owned target modules, checkpoint conversion,
+merge, and vLLM serving path. No NVIDIA model weights are redistributed.
 
-Notebook 01 calls NVIDIA's hosted
+Notebook 01 optionally calls NVIDIA's hosted
 `nvidia/nemotron-3.5-lightning-30b-a3b` and
-`nvidia/nemotron-3-ultra-550b-a55b` trial endpoints. Their API references
-identify the served checkpoints as NVFP4 variants. Nemotron 3 Ultra is governed
-by OpenMDW 1.1, and endpoint use is subject to NVIDIA's API Trial Terms. API
-keys and generated responses are not included in the repository.
+`nvidia/nemotron-3-ultra-550b-a55b` endpoints. Endpoint use is subject to
+NVIDIA's applicable API trial/service terms. API keys and generated responses
+are not included in the repository.
 
-## BANKING77
+## BIRD Text2SQL
 
-- Authors: Iñigo Casanueva, Tadas Temcinas, Daniela Gerz, Matthew Henderson,
-  and Ivan Vulić
-- Paper: “Efficient Intent Detection with Dual Sentence Encoders,” NLP4ConvAI
-  2020
-- Source: `PolyAI-LDN/task-specific-datasets`
-- Pinned source revision: `57ec275d8078af65b7731c2a98be812d844a6d6b`
-- License: Creative Commons Attribution 4.0 International
+- Authors: Jinyang Li, Binyuan Hui, Ge Qu, Jiaxi Yang, Binhua Li, Bowen Li,
+  Bailin Wang, Bowen Qin, Ruiying Geng, Nan Huo, and collaborators
+- Paper: “Can LLM Already Serve as A Database Interface? A BIg Bench for
+  Large-Scale Database Grounded Text-to-SQLs,” NeurIPS 2023
+- Direct train mirror: `xu3kev/BIRD-SQL-data-train`
+- Pinned direct-train revision: `9122256f9d14752ed80fb9b7d158e21d9f9261aa`
+- Reasoning train mirror: `meowterspace45/bird-sql-train-with-reasoning`
+- Pinned reasoning revision: `9e351e0057819f1b0917debb83c8e12f321157a4`
+- Evaluation dataset: official BIRD Mini-Dev SQLite package
+- Mini-Dev terms: Creative Commons Attribution-ShareAlike 4.0
 
-The repository does not redistribute the dataset. The preparation script
-downloads the pinned author-provided `train.csv`, `test.csv`, and
-`categories.json`, then records their SHA-256 digests in the generated local
-manifest.
+The BIRD project distributes the Mini-Dev questions and SQLite databases in one
+official package. The preparation script downloads that package from BIRD's
+Google Drive file ID, uses its own `mini_dev_sqlite.json` as the sole evaluation
+source, records its byte size and SHA-256 in the local manifest, and does not
+commit it.
+
+The `xu3kev` direct-train mirror does not declare a license in its Hugging Face
+metadata at the pinned revision. The reasoning mirror's card describes its
+reasoning traces as Apache-2.0, but its structured license metadata is unset.
+Users remain responsible for reviewing upstream dataset/model terms for their
+intended use. This repository does not redistribute either training mirror.
+
+## SQLGlot
+
+SQLGlot is used under its MIT license to parse and normalize generated SQLite
+queries before read-only execution. See `sqlglot==30.17.0` in
+`requirements-lab.txt`.

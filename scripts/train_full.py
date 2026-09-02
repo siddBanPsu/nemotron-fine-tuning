@@ -8,7 +8,6 @@ import os
 import sys
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
@@ -16,9 +15,11 @@ import torch
 from megatron.bridge.recipes.nemotronh import nemotron_3_5_lightning_sft_config
 from megatron.bridge.training.finetune import finetune
 from megatron.bridge.training.gpt_step import forward_step
+from megatron.core.transformer.moe.router import TopKRouter
 
-from nemotron_ft_lab.constants import MODEL_ID, MODEL_REVISION
+from nemotron_ft_lab.constants import DEFAULT_MAX_SEQUENCE_LENGTH, DEFAULT_MAX_STEPS, MODEL_ID, MODEL_REVISION
 from nemotron_ft_lab.hardware import inspect_cuda, validate_full_sft_hardware
+from nemotron_ft_lab.megatron_compat import configure_expert_bias_padding_mask_compatibility
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,12 +27,14 @@ def parse_args() -> argparse.Namespace:
     artifacts_dir = Path(os.environ.get("NEMOTRON_ARTIFACTS_DIR", "artifacts"))
     parser.add_argument("--hf-model", default=MODEL_ID)
     parser.add_argument("--revision", default=MODEL_REVISION)
-    parser.add_argument("--megatron-checkpoint", default="/workspace/storage/checkpoints/lightning35-megatron")
-    parser.add_argument("--data-dir", default=str(artifacts_dir / "data/banking77"))
-    parser.add_argument("--output-dir", default="/workspace/storage/checkpoints/banking77-full")
-    parser.add_argument("--sequence-length", type=int, default=512)
+    parser.add_argument(
+        "--megatron-checkpoint", default="/workspace/storage/checkpoints/lightning35-megatron"
+    )
+    parser.add_argument("--data-dir", default=str(artifacts_dir / "data/bird-text2sql"))
+    parser.add_argument("--output-dir", default="/workspace/storage/checkpoints/bird-text2sql-full")
+    parser.add_argument("--sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH)
     parser.add_argument("--global-batch-size", type=int, default=32)
-    parser.add_argument("--max-steps", type=int, default=40)
+    parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS)
     parser.add_argument("--learning-rate", type=float, default=5e-6)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -39,9 +42,9 @@ def parse_args() -> argparse.Namespace:
 
 def build_config(args: argparse.Namespace):
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    if world_size < 8:
-        raise RuntimeError(f"Full SFT requires at least 8 ranks; torchrun launched {world_size}.")
-    tp = 2 if world_size >= 16 else 1
+    if world_size < 16:
+        raise RuntimeError(f"Full SFT requires at least 16 ranks; torchrun launched {world_size}.")
+    tp = 2
     ep = 8
     if world_size % (tp * ep) != 0:
         raise RuntimeError(f"WORLD_SIZE={world_size} is not divisible by TP({tp}) x EP({ep}).")
@@ -110,6 +113,9 @@ def main() -> None:
     if "RANK" not in os.environ:
         raise RuntimeError("Launch train_full.py with torchrun on the complete multi-GPU node.")
     cfg = build_config(args)
+    compatibility_mode = configure_expert_bias_padding_mask_compatibility(TopKRouter)
+    if int(os.environ.get("RANK", "0")) == 0:
+        print(f"Megatron expert-bias padding-mask mode: {compatibility_mode}", flush=True)
     if args.dry_run:
         print("Dry run passed: official full-SFT config constructed successfully.")
         return

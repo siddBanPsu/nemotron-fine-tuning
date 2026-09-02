@@ -37,7 +37,7 @@ class NvidiaApiConfig:
 
     @property
     def artifact_prefix(self) -> str:
-        """Keep legacy public filenames while isolating non-public results."""
+        """Keep public filenames concise while isolating non-public results."""
         if self.profile_name == "public":
             return ""
         slug = re.sub(r"[^a-z0-9]+", "_", self.profile_name.lower()).strip("_")

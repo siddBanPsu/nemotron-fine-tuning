@@ -1,244 +1,70 @@
-"""Deterministic BANKING77 preparation for prompt-completion SFT.
-
-The target is an intentionally opaque enterprise route code. That makes the
-exercise measure whether tuning learned a private taxonomy, rather than whether
-the base model already knows natural-language intent names.
-"""
+"""BIRD Text2SQL preparation helpers shared by the four notebooks."""
 
 from __future__ import annotations
 
+import hashlib
 import json
-import math
 import random
-import re
+import sqlite3
+import zipfile
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Iterable, Sequence
-
-from .constants import ROUTE_PERMUTATION_SEED, ROUTE_PREFIX
+from typing import Any
 
 
-_RETRIEVAL_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+def text2sql_user_content(schema: str, question: str, evidence: str = "") -> str:
+    """Match the user-message layout in NVIDIA's official Text2SQL cookbook."""
+    sections = [schema.strip(), question.strip()]
+    if evidence.strip():
+        sections.append(evidence.strip())
+    return "\n\n".join(sections)
 
 
-_ROUTE_INDICES = list(range(77))
-random.Random(ROUTE_PERMUTATION_SEED).shuffle(_ROUTE_INDICES)
-ROUTE_INDEX_BY_LABEL = tuple(_ROUTE_INDICES)
-
-
-@dataclass(frozen=True)
-class PreparedExample:
-    example_id: str
-    utterance: str
-    label_id: int
-    label_name: str
-    route_code: str
-
-
-def route_code(label_id: int) -> str:
-    """Return the stable two-digit internal code for a BANKING77 label."""
-    if not 0 <= label_id <= 76:
-        raise ValueError(f"BANKING77 label must be in [0, 76], received {label_id}.")
-    return f"{ROUTE_PREFIX}{ROUTE_INDEX_BY_LABEL[label_id]:02d}"
-
-
-def system_instruction() -> str:
-    return (
-        "You route online-banking support messages into an internal intent code. "
-        "Return exactly one code from B77_00 through B77_76. Return only the code: "
-        "no words, punctuation, JSON, or explanation."
-    )
-
-
-def build_messages(utterance: str) -> list[dict[str, str]]:
+def build_messages(row: dict[str, Any]) -> list[dict[str, str]]:
+    """Return the inference messages used by cloud and local baselines."""
     return [
-        {"role": "system", "content": system_instruction()},
-        {"role": "user", "content": utterance.strip()},
-    ]
-
-
-def build_taxonomy_messages(
-    utterance: str,
-    label_map: dict[str, dict[str, Any]],
-) -> list[dict[str, str]]:
-    """Build an inference prompt that exposes the private taxonomy explicitly."""
-    taxonomy = "\n".join(
-        f"{code} = {str(details['label_name']).replace('_', ' ')}"
-        for code, details in sorted(label_map.items())
-    )
-    return [
+        {"role": "system", "content": ""},
         {
-            "role": "system",
-            "content": f"{system_instruction()}\n\nInternal taxonomy:\n{taxonomy}",
+            "role": "user",
+            "content": text2sql_user_content(
+                str(row["schema"]), str(row["question"]), str(row.get("evidence", ""))
+            ),
         },
-        {"role": "user", "content": utterance.strip()},
     ]
 
 
-def build_few_shot_messages(
-    utterance: str,
-    demonstrations: Sequence[dict[str, Any]],
-) -> list[dict[str, str]]:
-    """Build a prompt using only retrieved training examples as demonstrations."""
-    messages = [{"role": "system", "content": system_instruction()}]
-    for row in demonstrations:
-        messages.extend(
-            [
-                {"role": "user", "content": str(row["utterance"]).strip()},
-                {"role": "assistant", "content": str(row["route_code"]).strip()},
-            ]
-        )
-    messages.append({"role": "user", "content": utterance.strip()})
-    return messages
+def determine_eot_marker(tokenizer: Any) -> str:
+    marker = "__NEMOTRON_TEXT2SQL_MARKER__"
+    rendered = tokenizer.apply_chat_template([{"role": "assistant", "content": marker}], tokenize=False)
+    if marker not in rendered:
+        raise RuntimeError("Tokenizer chat template did not preserve the EOT probe marker.")
+    return rendered.split(marker, maxsplit=1)[-1]
 
 
-class LexicalDemonstrationRetriever:
-    """Deterministic TF-IDF cosine retrieval over frozen training examples."""
-
-    def __init__(self, rows: Iterable[dict[str, Any]]):
-        self.rows = [dict(row) for row in rows]
-        if not self.rows:
-            raise ValueError("At least one training row is required for retrieval.")
-
-        self.term_counts = [Counter(self._tokens(str(row["utterance"]))) for row in self.rows]
-        document_frequency = Counter(
-            token for counts in self.term_counts for token in counts
-        )
-        total = len(self.rows)
-        self.idf = {
-            token: math.log((total + 1) / (frequency + 1)) + 1.0
-            for token, frequency in document_frequency.items()
-        }
-        self.document_norms = [self._norm(counts) for counts in self.term_counts]
-
-    @staticmethod
-    def _tokens(text: str) -> list[str]:
-        return _RETRIEVAL_TOKEN_PATTERN.findall(text.lower())
-
-    def _norm(self, counts: Counter[str]) -> float:
-        return math.sqrt(
-            sum((frequency * self.idf.get(token, 0.0)) ** 2 for token, frequency in counts.items())
-        )
-
-    def retrieve(self, query: str, *, k: int = 5) -> list[dict[str, Any]]:
-        if k <= 0:
-            raise ValueError("k must be positive.")
-        if k > len(self.rows):
-            raise ValueError(f"Requested {k} demonstrations from only {len(self.rows)} rows.")
-
-        query_counts = Counter(self._tokens(query))
-        query_norm = self._norm(query_counts)
-        scored: list[tuple[float, str, int]] = []
-        for index, (row, counts, document_norm) in enumerate(
-            zip(self.rows, self.term_counts, self.document_norms)
-        ):
-            dot = sum(
-                query_frequency
-                * counts.get(token, 0)
-                * self.idf.get(token, 0.0) ** 2
-                for token, query_frequency in query_counts.items()
-            )
-            denominator = query_norm * document_norm
-            score = dot / denominator if denominator else 0.0
-            scored.append((score, str(row.get("example_id", index)), index))
-
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        return [self.rows[index] for _, _, index in scored[:k]]
-
-
-def stratified_take(
-    rows: Iterable[dict[str, Any]],
+def render_training_record(
+    row: dict[str, Any],
+    tokenizer: Any,
     *,
-    per_label: int,
-    seed: int,
-    excluded_ids: set[str] | None = None,
-) -> list[dict[str, Any]]:
-    """Select the same number of examples per label with deterministic shuffling."""
-    if per_label <= 0:
-        raise ValueError("per_label must be positive.")
-
-    excluded_ids = excluded_ids or set()
-    by_label: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        if str(row["example_id"]) not in excluded_ids:
-            by_label[int(row["label"])].append(dict(row))
-
-    selected: list[dict[str, Any]] = []
-    for label_id in sorted(by_label):
-        candidates = by_label[label_id]
-        random.Random(seed + label_id).shuffle(candidates)
-        if len(candidates) < per_label:
-            raise ValueError(
-                f"Label {label_id} has only {len(candidates)} available rows; {per_label} requested."
-            )
-        selected.extend(candidates[:per_label])
-    return selected
-
-
-def balanced_evaluation_subset(
-    rows: Iterable[dict[str, Any]],
-    *,
-    examples_per_label: int,
-) -> list[dict[str, Any]]:
-    """Take the first frozen evaluation examples for every BANKING77 label.
-
-    Prepared evaluation data is already selected deterministically. This helper
-    changes only evaluation breadth and, unlike a positional slice, guarantees
-    that a 77-row smoke run contains one example from each of the 77 labels.
-    """
-    if examples_per_label <= 0:
-        raise ValueError("examples_per_label must be positive.")
-
-    by_label: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        by_label[int(row["label_id"])].append(dict(row))
-
-    expected_labels = set(range(77))
-    if set(by_label) != expected_labels:
-        missing = sorted(expected_labels.difference(by_label))
-        unexpected = sorted(set(by_label).difference(expected_labels))
-        raise ValueError(
-            f"Evaluation rows must contain all 77 labels; missing={missing[:3]}, "
-            f"unexpected={unexpected[:3]}."
-        )
-
-    selected: list[dict[str, Any]] = []
-    for label_id in range(77):
-        candidates = by_label[label_id]
-        if len(candidates) < examples_per_label:
-            raise ValueError(
-                f"Label {label_id} has only {len(candidates)} evaluation rows; "
-                f"{examples_per_label} requested."
-            )
-        selected.extend(candidates[:examples_per_label])
-    return selected
-
-
-def as_prepared(row: dict[str, Any], label_names: Sequence[str]) -> PreparedExample:
-    label_id = int(row["label"])
-    return PreparedExample(
-        example_id=str(row["example_id"]),
-        utterance=str(row["text"]).strip(),
-        label_id=label_id,
-        label_name=str(label_names[label_id]),
-        route_code=route_code(label_id),
-    )
-
-
-def render_training_record(example: PreparedExample, tokenizer: Any) -> dict[str, Any]:
-    """Render one prompt-completion row using the checkpoint's native chat template."""
+    include_reasoning: bool,
+    eot_marker: str | None = None,
+) -> dict[str, Any]:
+    """Render one prompt-completion row using Nemotron's native chat template."""
     prompt = tokenizer.apply_chat_template(
-        build_messages(example.utterance),
+        build_messages(row),
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=False,
+        enable_thinking=include_reasoning,
     )
-    marker = tokenizer.apply_chat_template(
-        [{"role": "assistant", "content": "__ROUTE_CODE__"}],
-        tokenize=False,
-    ).split("__ROUTE_CODE__", maxsplit=1)[-1]
-    completion = example.route_code + marker
+    sql = str(row["SQL"]).strip()
+    if include_reasoning:
+        reasoning = str(row.get("reasoning_trace", "")).strip()
+        if not reasoning:
+            raise ValueError("A reasoning example is missing reasoning_trace.")
+        completion = f"{reasoning}</think>{sql}"
+    else:
+        completion = sql
+    completion += eot_marker if eot_marker is not None else determine_eot_marker(tokenizer)
     text = prompt + completion
     length = len(tokenizer(text, add_special_tokens=False).input_ids)
     return {
@@ -246,35 +72,118 @@ def render_training_record(example: PreparedExample, tokenizer: Any) -> dict[str
         "output": completion,
         "text": text,
         "length": length,
-        "example_id": example.example_id,
-        "label_id": example.label_id,
-        "label_name": example.label_name,
-        "route_code": example.route_code,
-        "utterance": example.utterance,
+        "source": "bird_reasoning" if include_reasoning else "bird_direct",
+        "source_id": f"{row.get('db_id', 'unknown')}::{row.get('_source_index', 'unknown')}",
     }
 
 
-def render_evaluation_record(example: PreparedExample, tokenizer: Any) -> dict[str, Any]:
-    prompt = tokenizer.apply_chat_template(
-        build_messages(example.utterance),
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=False,
-    )
+def schema_from_sqlite(database_path: str | Path) -> str:
+    """Build deterministic DDL context from an official Mini-Dev SQLite file."""
+    path = Path(database_path)
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        rows = connection.execute(
+            "SELECT type, name, sql FROM sqlite_master "
+            "WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' "
+            "AND type IN ('table', 'view') ORDER BY type, name"
+        ).fetchall()
+    finally:
+        connection.close()
+    statements = [str(sql).strip().rstrip(";") + ";" for _, _, sql in rows]
+    if not statements:
+        raise RuntimeError(f"No table or view DDL found in {path}.")
+    return "\n".join(statements)
+
+
+def _difficulty_targets(rows: Sequence[dict[str, Any]], size: int) -> dict[str, int]:
+    counts = Counter(str(row["difficulty"]) for row in rows)
+    if size <= 0 or size > len(rows):
+        raise ValueError(f"Evaluation size must be in [1, {len(rows)}], received {size}.")
+    raw = {name: size * count / len(rows) for name, count in counts.items()}
+    targets = {name: int(value) for name, value in raw.items()}
+    remainder = size - sum(targets.values())
+    for name in sorted(raw, key=lambda item: (-(raw[item] - targets[item]), item))[:remainder]:
+        targets[name] += 1
+    return targets
+
+
+def balanced_evaluation_subset(
+    rows: Sequence[dict[str, Any]], *, size: int, seed: int
+) -> list[dict[str, Any]]:
+    """Freeze a difficulty-proportional, database-spread Mini-Dev subset."""
+    targets = _difficulty_targets(rows, size)
+    by_stratum: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_stratum[(str(row["difficulty"]), str(row["db_id"]))].append(dict(row))
+    for candidates in by_stratum.values():
+        candidates.sort(key=lambda row: hashlib.sha256(f"{seed}:{row['question_id']}".encode()).hexdigest())
+
+    selected: list[dict[str, Any]] = []
+    for difficulty in sorted(targets):
+        databases = sorted({db for diff, db in by_stratum if diff == difficulty})
+        random.Random(f"{seed}:{difficulty}").shuffle(databases)
+        queues = {db: list(by_stratum[(difficulty, db)]) for db in databases}
+        cursor = 0
+        for _ in range(targets[difficulty]):
+            available = [db for db in databases if queues[db]]
+            if not available:
+                raise RuntimeError(f"Not enough {difficulty} Mini-Dev rows for the requested subset.")
+            db = available[cursor % len(available)]
+            selected.append(queues[db].pop(0))
+            cursor += 1
+    selected.sort(key=lambda row: int(row["question_id"]))
+    return selected
+
+
+def render_evaluation_record(
+    row: dict[str, Any], *, schema: str, database_relative_path: str
+) -> dict[str, Any]:
     return {
-        "example_id": example.example_id,
-        "prompt": prompt,
-        "utterance": example.utterance,
-        "label_id": example.label_id,
-        "label_name": example.label_name,
-        "expected": example.route_code,
+        "example_id": f"bird-mini-dev-{int(row['question_id']):04d}",
+        "question_id": int(row["question_id"]),
+        "db_id": str(row["db_id"]),
+        "difficulty": str(row["difficulty"]),
+        "question": str(row["question"]).strip(),
+        "evidence": str(row.get("evidence", "")).strip(),
+        "schema": schema,
+        "expected_sql": str(row["SQL"]).strip(),
+        "database_path": database_relative_path,
     }
 
 
-def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def safe_extract_zip(archive: str | Path, destination: str | Path) -> None:
+    """Extract a trusted archive while still rejecting path traversal entries."""
+    destination_path = Path(destination).resolve()
+    destination_path.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as handle:
+        for member in handle.infolist():
+            target = (destination_path / member.filename).resolve()
+            if destination_path != target and destination_path not in target.parents:
+                raise RuntimeError(f"Archive member escapes destination: {member.filename}")
+        handle.extractall(destination_path)
+
+
+def find_minidev_root(root: str | Path) -> Path:
+    matches = sorted(Path(root).rglob("mini_dev_sqlite.json"))
+    candidates = [path.parent for path in matches if (path.parent / "dev_databases").is_dir()]
+    if len(candidates) != 1:
+        raise RuntimeError(f"Expected exactly one Mini-Dev root under {root}, found {len(candidates)}.")
+    return candidates[0]
+
+
+def sha256_file(path: str | Path, *, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> int:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
     count = 0
-    with path.open("w", encoding="utf-8") as handle:
+    with target.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
             count += 1

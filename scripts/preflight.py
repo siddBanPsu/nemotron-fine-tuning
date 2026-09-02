@@ -11,7 +11,6 @@ import shutil
 import sys
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
@@ -35,7 +34,15 @@ def main() -> None:
         "hardware": inventory.as_dict() if inventory is not None else "not required for API baseline",
         "packages": {},
     }
-    for package in ("openai", "torch", "transformers", "datasets"):
+    for package in (
+        "datasets",
+        "huggingface_hub",
+        "openai",
+        "sqlglot",
+        "torch",
+        "transformers",
+        "vllm",
+    ):
         checks["packages"][package] = (
             importlib.metadata.version(package) if importlib.util.find_spec(package) else None
         )
@@ -49,18 +56,20 @@ def main() -> None:
         raise RuntimeError(f"The launchable pins Python 3.12; detected {sys.version.split()[0]}.")
     if args.profile == "api":
         missing = [
-            name
-            for name in ("openai", "transformers", "datasets")
-            if checks["packages"][name] is None
+            name for name in ("openai", "sqlglot", "huggingface_hub") if checks["packages"][name] is None
         ]
         if missing:
             raise RuntimeError(f"API baseline dependencies are missing: {missing}")
     elif args.profile == "inference":
         assert inventory is not None
         validate_inference_hardware(inventory)
+        if checks["packages"]["vllm"] is None:
+            raise RuntimeError("Local inference requires vLLM from the GPU container.")
     elif args.profile == "peft":
         assert inventory is not None
         validate_peft_hardware(inventory)
+        if not checks["packages"]["megatron.bridge"]:
+            raise RuntimeError("PEFT requires the pinned Megatron-Bridge source path.")
     elif args.profile == "full":
         assert inventory is not None
         validate_full_sft_hardware(inventory)

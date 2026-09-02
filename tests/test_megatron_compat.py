@@ -32,9 +32,7 @@ class MegatronCompatibilityTests(unittest.TestCase):
         mode = configure_expert_bias_padding_mask_compatibility(NativeMaskRouter)
 
         self.assertEqual(mode, "native-mcore")
-        self.assertTrue(
-            getattr(NativeMaskRouter._apply_expert_bias, EXPERT_BIAS_PADDING_MASK_MARKER)
-        )
+        self.assertTrue(getattr(NativeMaskRouter._apply_expert_bias, EXPERT_BIAS_PADDING_MASK_MARKER))
         self.assertEqual(
             configure_expert_bias_padding_mask_compatibility(NativeMaskRouter),
             "already-compatible",
@@ -45,9 +43,7 @@ class MegatronCompatibilityTests(unittest.TestCase):
             configure_expert_bias_padding_mask_compatibility(LegacyMaskRouter),
             "bridge-wrapper",
         )
-        self.assertFalse(
-            getattr(LegacyMaskRouter._apply_expert_bias, EXPERT_BIAS_PADDING_MASK_MARKER, False)
-        )
+        self.assertFalse(getattr(LegacyMaskRouter._apply_expert_bias, EXPERT_BIAS_PADDING_MASK_MARKER, False))
 
     def test_rejects_an_unknown_router_implementation(self):
         with self.assertRaisesRegex(RuntimeError, "Cannot determine"):

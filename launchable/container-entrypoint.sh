@@ -55,10 +55,12 @@ from megatron.bridge.recipes.nemotronh import (
     nemotron_3_5_lightning_peft_config,
     nemotron_3_5_lightning_sft_config,
 )
+import vllm
 
 assert callable(nemotron_3_5_lightning_peft_config)
 assert callable(nemotron_3_5_lightning_sft_config)
 print("Megatron-Bridge Lightning PEFT and full-SFT recipes are importable.")
+print(f"vLLM local evaluation backend: {vllm.__version__}")
 PY
 
 echo "[container 4/6] Optional model prefetch"

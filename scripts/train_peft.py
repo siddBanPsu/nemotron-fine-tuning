@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LoRA SFT for Nemotron 3.5 Lightning using the official Megatron-Bridge recipe."""
+"""LoRA SFT for BIRD Text2SQL using the official Lightning Megatron-Bridge recipe."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import os
 import sys
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
@@ -20,7 +19,14 @@ from megatron.bridge.training.finetune import finetune
 from megatron.bridge.training.gpt_step import forward_step
 from megatron.core.transformer.moe.router import TopKRouter
 
-from nemotron_ft_lab.constants import MODEL_ID, MODEL_REVISION
+from nemotron_ft_lab.constants import (
+    DEFAULT_MAX_SEQUENCE_LENGTH,
+    DEFAULT_MAX_STEPS,
+    MODEL_ID,
+    MODEL_REVISION,
+    OFFICIAL_COOKBOOK_REVISION,
+)
+from nemotron_ft_lab.data import sha256_file
 from nemotron_ft_lab.megatron_compat import configure_expert_bias_padding_mask_compatibility
 
 
@@ -40,15 +46,18 @@ def parse_args() -> argparse.Namespace:
     artifacts_dir = Path(os.environ.get("NEMOTRON_ARTIFACTS_DIR", "artifacts"))
     parser.add_argument("--hf-model", default=MODEL_ID)
     parser.add_argument("--revision", default=MODEL_REVISION)
-    parser.add_argument("--megatron-checkpoint", default="/workspace/storage/checkpoints/lightning35-megatron")
-    parser.add_argument("--data-dir", default=str(artifacts_dir / "data/banking77"))
-    parser.add_argument("--output-dir", default="/workspace/storage/checkpoints/banking77-lora")
-    parser.add_argument("--sequence-length", type=int, default=512)
-    parser.add_argument("--global-batch-size", type=int, default=16)
+    parser.add_argument(
+        "--megatron-checkpoint", default="/workspace/storage/checkpoints/lightning35-megatron"
+    )
+    parser.add_argument("--data-dir", default=str(artifacts_dir / "data/bird-text2sql"))
+    parser.add_argument("--output-dir", default="/workspace/storage/checkpoints/bird-text2sql-lora")
+    parser.add_argument("--sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH)
+    parser.add_argument("--global-batch-size", type=int, default=32)
     parser.add_argument("--micro-batch-size", type=int, default=1)
-    parser.add_argument("--max-steps", type=int, default=40)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--lora-rank", type=int, default=16)
+    parser.add_argument("--lora-rank", type=int, default=32)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -60,7 +69,55 @@ def build_config(args: argparse.Namespace):
     data_dir = Path(args.data_dir).resolve()
     examples, packed_sequences = count_packed_sequences(data_dir, args.sequence_length)
     steps_for_epoch = max(1, math.ceil(packed_sequences / args.global_batch_size))
-    train_steps = min(args.max_steps, steps_for_epoch)
+    train_steps = steps_for_epoch * args.epochs
+    if args.max_steps > 0:
+        train_steps = min(args.max_steps, train_steps)
+
+    training_path = data_dir / "training.jsonl"
+    training_manifest_path = data_dir / "training_manifest.json"
+    if not training_manifest_path.is_file():
+        raise RuntimeError(f"Missing training data manifest: {training_manifest_path}")
+    training_manifest = json.loads(training_manifest_path.read_text(encoding="utf-8"))
+    training_sha256 = sha256_file(training_path)
+    if training_manifest.get("training_sha256") != training_sha256:
+        raise RuntimeError("training.jsonl no longer matches its preparation manifest.")
+
+    output_dir = Path(args.output_dir).resolve()
+    run_contract = {
+        "model": args.hf_model,
+        "revision": args.revision,
+        "cookbook_revision": OFFICIAL_COOKBOOK_REVISION,
+        "training_sha256": training_sha256,
+        "examples": examples,
+        "estimated_packed_sequences": packed_sequences,
+        "sequence_length": args.sequence_length,
+        "global_batch_size": args.global_batch_size,
+        "micro_batch_size": args.micro_batch_size,
+        "train_steps": train_steps,
+        "learning_rate": args.learning_rate,
+        "lora_rank": args.lora_rank,
+        "lora_alpha": args.lora_rank,
+        "world_size": world_size,
+        "tensor_parallel_size": tp,
+        "expert_parallel_size": ep,
+        "single_gpu_mtp_reduction": world_size == 1,
+    }
+    run_manifest_path = output_dir / "nemotron_ft_lab_run.json"
+    if run_manifest_path.exists():
+        existing_contract = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+        if existing_contract != run_contract:
+            raise RuntimeError(
+                f"Existing checkpoint contract differs from this run: {run_manifest_path}. "
+                "Choose a new --output-dir rather than resuming incompatible training."
+            )
+    elif (output_dir / "latest_checkpointed_iteration.txt").exists():
+        raise RuntimeError(
+            f"Existing checkpoint has no lab run contract: {output_dir}. "
+            "Choose a new --output-dir to avoid an ambiguous resume."
+        )
+    elif int(os.environ.get("RANK", "0")) == 0:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        run_manifest_path.write_text(json.dumps(run_contract, indent=2) + "\n", encoding="utf-8")
 
     cfg = nemotron_3_5_lightning_peft_config("lora")
     cfg.model.hf_model_id = args.hf_model
@@ -101,19 +158,20 @@ def build_config(args: argparse.Namespace):
     cfg.scheduler.lr_warmup_iters = max(1, train_steps // 10)
     cfg.scheduler.lr_decay_iters = train_steps
     cfg.peft.dim = args.lora_rank
-    cfg.peft.alpha = args.lora_rank * 2
+    cfg.peft.alpha = args.lora_rank
 
     cfg.validation.eval_iters = 0
     cfg.validation.eval_interval = 0
     cfg.logger.log_interval = 1
-    cfg.checkpoint.save = str(Path(args.output_dir).resolve())
+    cfg.checkpoint.save = str(output_dir)
     cfg.checkpoint.save_interval = train_steps
     cfg.checkpoint.async_save = False
 
     if int(os.environ.get("RANK", "0")) == 0:
         print(
             f"PEFT config: {examples} examples, ~{packed_sequences} packed sequences, "
-            f"{train_steps} steps, TP{tp}/EP{ep}, seq={args.sequence_length}, LoRA r={args.lora_rank}",
+            f"{train_steps} steps, TP{tp}/EP{ep}, seq={args.sequence_length}, "
+            f"LoRA r={args.lora_rank}, cookbook={OFFICIAL_COOKBOOK_REVISION}",
             flush=True,
         )
     return cfg

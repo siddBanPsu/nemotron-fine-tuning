@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nemotron-lightning-finetuning-lab"
-version = "0.1.0"
-description = "API-first Lightning-versus-Ultra targets and Brev-ready Nemotron 3.5 Lightning fine-tuning labs"
+version = "0.2.0"
+description = "Executable Text2SQL evaluation and Brev-ready Nemotron 3.5 Lightning LoRA labs"
 requires-python = ">=3.12,<3.13"
 dependencies = []
 
@@ -22,3 +22,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E402", "E501"] # direct-entry scripts bootstrap the src layout; notebook sources are prose-heavy

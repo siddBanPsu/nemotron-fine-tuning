@@ -1,21 +1,41 @@
-"""Exact-match generation evaluation shared by all three notebooks."""
+"""Generation and executable-SQL evaluation shared by all baseline notebooks."""
 
 from __future__ import annotations
 
 import json
 import random
 import re
+import sqlite3
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
-from .constants import ROUTE_PREFIX
+import sqlglot
+from sqlglot import exp
+
 from .data import build_messages
 
-ROUTE_PATTERN = re.compile(rf"\b{re.escape(ROUTE_PREFIX)}(?:[0-6]\d|7[0-6])\b", re.IGNORECASE)
+_FENCE_PATTERN = re.compile(r"```(?:sql|sqlite)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
+_QUERY_START_PATTERN = re.compile(r"\b(?:SELECT|WITH)\b", re.IGNORECASE)
+_STOP_MARKERS = ("<|im_end|>", "<|eot_id|>", "<|endoftext|>")
+_FORBIDDEN_EXPRESSION_NAMES = {
+    "Alter",
+    "Attach",
+    "Command",
+    "Create",
+    "Delete",
+    "Drop",
+    "Insert",
+    "Merge",
+    "Pragma",
+    "Set",
+    "Transaction",
+    "Update",
+}
 
 
 def _response_headers(exc: Exception) -> Any:
@@ -66,78 +86,143 @@ def _retry_after_seconds(exc: Exception) -> float | None:
     return None
 
 
-def extract_route_code(text: str) -> str | None:
-    match = ROUTE_PATTERN.search(text.strip())
-    return match.group(0).upper() if match else None
+def extract_sql(text: str) -> str | None:
+    """Extract one read-only SQLite query from a model response."""
+    candidate = text.strip()
+    if "</think>" in candidate:
+        candidate = candidate.rsplit("</think>", maxsplit=1)[-1].strip()
+    fenced = _FENCE_PATTERN.search(candidate)
+    if fenced:
+        candidate = fenced.group(1).strip()
+    for marker in _STOP_MARKERS:
+        candidate = candidate.split(marker, maxsplit=1)[0].strip()
+    match = _QUERY_START_PATTERN.search(candidate)
+    if not match:
+        return None
+    candidate = candidate[match.start() :].strip()
+    try:
+        parsed = sqlglot.parse(candidate, read="sqlite")
+    except sqlglot.errors.ParseError:
+        return None
+    if len(parsed) != 1 or parsed[0] is None:
+        return None
+    expression = parsed[0]
+    if not expression.find(exp.Select):
+        return None
+    if any(type(node).__name__ in _FORBIDDEN_EXPRESSION_NAMES for node in expression.walk()):
+        return None
+    return expression.sql(dialect="sqlite", pretty=False)
 
 
-def score_predictions(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def normalize_sql(text: str) -> str | None:
+    query = extract_sql(text)
+    if query is None:
+        return None
+    return sqlglot.parse_one(query, read="sqlite").sql(dialect="sqlite", pretty=False, normalize=True)
+
+
+def _canonical_value(value: Any) -> Any:
+    if isinstance(value, float):
+        return round(value, 8)
+    if isinstance(value, bytes):
+        return value.hex()
+    return value
+
+
+def execute_read_only_sql(
+    database_path: str | Path,
+    sql: str,
+    *,
+    timeout_seconds: float = 30.0,
+    max_rows: int = 100_000,
+) -> set[tuple[Any, ...]]:
+    """Execute a single parsed query using BIRD-compatible set comparison semantics."""
+    query = extract_sql(sql)
+    if query is None:
+        raise ValueError("Only one parseable SELECT/WITH query is allowed.")
+    path = Path(database_path).resolve()
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    started = time.monotonic()
+
+    def progress_handler() -> int:
+        return int(time.monotonic() - started > timeout_seconds)
+
+    connection.set_progress_handler(progress_handler, 1_000)
+    try:
+        cursor = connection.execute(query)
+        values = cursor.fetchmany(max_rows + 1)
+        if len(values) > max_rows:
+            raise RuntimeError(f"Query exceeded the {max_rows}-row evaluation limit.")
+        return {tuple(_canonical_value(value) for value in row) for row in values}
+    finally:
+        connection.close()
+
+
+def score_predictions(
+    rows: Iterable[dict[str, Any]],
+    *,
+    data_dir: str | Path,
+    timeout_seconds: float = 30.0,
+) -> dict[str, Any]:
+    """Score syntax, normalized exact match, and official-style execution accuracy."""
+    root = Path(data_dir).resolve()
     scored: list[dict[str, Any]] = []
     for row in rows:
-        expected = str(row["expected"]).upper()
-        predicted = extract_route_code(str(row.get("generated", "")))
-        scored.append({**row, "predicted": predicted, "correct": predicted == expected})
+        generated = str(row.get("generated", ""))
+        predicted_sql = extract_sql(generated)
+        expected_sql = str(row["expected_sql"])
+        expected_normalized = normalize_sql(expected_sql)
+        predicted_normalized = normalize_sql(generated)
+        exact_match = predicted_normalized is not None and predicted_normalized == expected_normalized
+        executable = False
+        execution_correct = False
+        execution_error: str | None = None
+        if predicted_sql is not None:
+            try:
+                database_path = (root / str(row["database_path"])).resolve()
+                if database_path != root and root not in database_path.parents:
+                    raise ValueError("Evaluation database path escapes the prepared data directory.")
+                expected_result = execute_read_only_sql(
+                    database_path, expected_sql, timeout_seconds=timeout_seconds
+                )
+                predicted_result = execute_read_only_sql(
+                    database_path, predicted_sql, timeout_seconds=timeout_seconds
+                )
+                executable = True
+                execution_correct = predicted_result == expected_result
+            except Exception as exc:
+                execution_error = f"{type(exc).__name__}: {exc}"[:500]
+        scored.append(
+            {
+                **row,
+                "predicted_sql": predicted_sql,
+                "sql_valid": predicted_sql is not None,
+                "sql_executable": executable,
+                "normalized_exact_match": exact_match,
+                "execution_correct": execution_correct,
+                "execution_error": execution_error,
+            }
+        )
 
     total = len(scored)
-    correct = sum(bool(row["correct"]) for row in scored)
-    valid = sum(row["predicted"] is not None for row in scored)
-    per_label_total = Counter(str(row["expected"]) for row in scored)
-    per_label_correct = Counter(str(row["expected"]) for row in scored if row["correct"])
-    per_label_accuracy = {
-        label: per_label_correct[label] / count for label, count in sorted(per_label_total.items())
+    difficulty_counts = Counter(str(row["difficulty"]) for row in scored)
+    difficulty_correct = Counter(str(row["difficulty"]) for row in scored if row["execution_correct"])
+    per_difficulty = {
+        name: difficulty_correct[name] / count for name, count in sorted(difficulty_counts.items())
     }
-    macro_accuracy = (
-        sum(per_label_accuracy.values()) / len(per_label_accuracy) if per_label_accuracy else 0.0
-    )
     return {
         "n": total,
-        "correct": correct,
-        "accuracy": correct / total if total else 0.0,
-        "macro_accuracy": macro_accuracy,
-        "valid_code_rate": valid / total if total else 0.0,
-        "per_label_accuracy": per_label_accuracy,
+        "execution_accuracy": (
+            sum(bool(row["execution_correct"]) for row in scored) / total if total else 0.0
+        ),
+        "sql_valid_rate": sum(bool(row["sql_valid"]) for row in scored) / total if total else 0.0,
+        "sql_executable_rate": (sum(bool(row["sql_executable"]) for row in scored) / total if total else 0.0),
+        "normalized_exact_match": (
+            sum(bool(row["normalized_exact_match"]) for row in scored) / total if total else 0.0
+        ),
+        "per_difficulty_execution_accuracy": per_difficulty,
         "rows": scored,
     }
-
-
-def generate_predictions(
-    model: Any,
-    tokenizer: Any,
-    rows: list[dict[str, Any]],
-    *,
-    batch_size: int = 8,
-    max_new_tokens: int = 8,
-) -> list[dict[str, Any]]:
-    """Greedily generate short route codes in bounded batches."""
-    import torch
-
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-    model.eval()
-
-    output_rows: list[dict[str, Any]] = []
-    for start in range(0, len(rows), batch_size):
-        batch = rows[start : start + batch_size]
-        encoded = tokenizer(
-            [str(row["prompt"]) for row in batch],
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-        )
-        encoded = {name: tensor.to(model.device) for name, tensor in encoded.items()}
-        prompt_width = encoded["input_ids"].shape[1]
-        with torch.inference_mode():
-            generated = model.generate(
-                **encoded,
-                do_sample=False,
-                max_new_tokens=max_new_tokens,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-            )
-        texts = tokenizer.batch_decode(generated[:, prompt_width:], skip_special_tokens=True)
-        output_rows.extend({**row, "generated": text.strip()} for row, text in zip(batch, texts))
-    return output_rows
 
 
 def generate_nvidia_api_predictions(
@@ -145,35 +230,27 @@ def generate_nvidia_api_predictions(
     rows: list[dict[str, Any]],
     *,
     model: str,
-    message_builder: Callable[[str], list[dict[str, str]]] = build_messages,
+    message_builder: Callable[[dict[str, Any]], list[dict[str, str]]] = build_messages,
     resume_path: str | Path | None = None,
-    max_tokens: int = 8,
+    max_tokens: int = 512,
     max_attempts: int = 8,
     requests_per_minute: float | None = 30.0,
     rate_limit_retry_seconds: float = 65.0,
 ) -> list[dict[str, Any]]:
-    """Generate route codes through NVIDIA's OpenAI-compatible API.
-
-    Results are checkpointed after every successful response so a trial-endpoint
-    throttle or notebook interruption does not discard completed requests. Calls
-    are paced below the public quota, and 429 responses honor provider retry
-    headers or fall back to waiting for the rolling minute window to reset.
-    """
+    """Generate resumable Text2SQL predictions through an OpenAI-compatible endpoint."""
     if max_attempts < 1:
         raise ValueError("max_attempts must be positive.")
     if requests_per_minute is not None and requests_per_minute <= 0:
         raise ValueError("requests_per_minute must be positive or None.")
     if rate_limit_retry_seconds < 0:
         raise ValueError("rate_limit_retry_seconds cannot be negative.")
-
     target = Path(resume_path) if resume_path is not None else None
     cached: dict[str, dict[str, Any]] = {}
     if target is not None and target.exists():
-        with target.open(encoding="utf-8") as handle:
-            for line in handle:
-                if line.strip():
-                    row = json.loads(line)
-                    cached[str(row["example_id"])] = row
+        for line in target.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                cached_row = json.loads(line)
+                cached[str(cached_row["example_id"])] = cached_row
 
     requested_ids = [str(row["example_id"]) for row in rows]
     if len(requested_ids) != len(set(requested_ids)):
@@ -181,25 +258,12 @@ def generate_nvidia_api_predictions(
     unexpected_ids = set(cached).difference(requested_ids)
     if unexpected_ids:
         raise ValueError(f"Resume file contains IDs outside this evaluation: {sorted(unexpected_ids)[:3]}")
-
     completed = sum(example_id in cached for example_id in requested_ids)
     if completed:
-        print(
-            f"NVIDIA API baseline: resuming with {completed}/{len(rows)} cached responses",
-            flush=True,
-        )
+        print(f"API evaluation: resuming with {completed}/{len(rows)} cached responses", flush=True)
 
-    minimum_interval = 60.0 / requests_per_minute if requests_per_minute is not None else 0.0
+    minimum_interval = 60.0 / requests_per_minute if requests_per_minute else 0.0
     last_request_started_at: float | None = None
-
-    def wait_for_request_slot() -> None:
-        nonlocal last_request_started_at
-        now = time.monotonic()
-        if last_request_started_at is not None:
-            remaining = minimum_interval - (now - last_request_started_at)
-            if remaining > 0:
-                time.sleep(remaining)
-        last_request_started_at = time.monotonic()
 
     def persist() -> None:
         if target is None:
@@ -217,10 +281,15 @@ def generate_nvidia_api_predictions(
         last_error: Exception | None = None
         for attempt in range(max_attempts):
             try:
-                wait_for_request_slot()
+                now = time.monotonic()
+                if last_request_started_at is not None:
+                    delay = minimum_interval - (now - last_request_started_at)
+                    if delay > 0:
+                        time.sleep(delay)
+                last_request_started_at = time.monotonic()
                 response = client.chat.completions.create(
                     model=model,
-                    messages=message_builder(str(row["utterance"])),
+                    messages=message_builder(row),
                     temperature=0.0,
                     max_tokens=max_tokens,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -230,7 +299,7 @@ def generate_nvidia_api_predictions(
                 persist()
                 completed += 1
                 break
-            except Exception as exc:  # Provider SDK exception types vary by release.
+            except Exception as exc:  # Provider SDK exception classes vary by release.
                 last_error = exc
                 status_code = getattr(exc, "status_code", None)
                 is_rate_limit = status_code == 429 or type(exc).__name__ == "RateLimitError"
@@ -242,33 +311,26 @@ def generate_nvidia_api_predictions(
                 )
                 if not is_retryable:
                     raise RuntimeError(
-                        f"NVIDIA API returned non-retryable HTTP {status_code} for {example_id}."
+                        f"API returned non-retryable HTTP {status_code} for {example_id}."
                     ) from exc
                 if attempt + 1 < max_attempts:
-                    if is_rate_limit:
-                        server_delay = _retry_after_seconds(exc)
-                        delay = (
-                            server_delay + 1.0
-                            if server_delay is not None
-                            else rate_limit_retry_seconds
-                        )
-                        reason = "rate limited"
-                    else:
-                        delay = min(2**attempt, 30)
-                        reason = f"transient error {status_code or type(exc).__name__}"
+                    server_delay = _retry_after_seconds(exc) if is_rate_limit else None
+                    delay = (
+                        server_delay + 1.0
+                        if server_delay is not None
+                        else rate_limit_retry_seconds
+                        if is_rate_limit
+                        else min(2**attempt, 30)
+                    )
                     print(
-                        f"NVIDIA API {reason} on {example_id}; waiting {delay:.1f}s "
-                        f"before retry {attempt + 2}/{max_attempts}.",
+                        f"API retry for {example_id} in {delay:.1f}s ({attempt + 2}/{max_attempts}).",
                         flush=True,
                     )
                     time.sleep(delay)
         else:
-            raise RuntimeError(
-                f"NVIDIA API failed for {example_id} after {max_attempts} attempts."
-            ) from last_error
-        if completed == 1 or completed % 25 == 0 or completed == len(rows):
-            print(f"NVIDIA API baseline: {completed}/{len(rows)} requests complete", flush=True)
-
+            raise RuntimeError(f"API failed for {example_id} after {max_attempts} attempts.") from last_error
+        if completed == 1 or completed % 10 == 0 or completed == len(rows):
+            print(f"API evaluation: {completed}/{len(rows)} requests complete", flush=True)
     return [cached[example_id] for example_id in requested_ids]
 
 
@@ -278,33 +340,29 @@ def save_report(path: str | Path, report: dict[str, Any], *, model: str, run_typ
     payload = {
         "model": model,
         "run_type": run_type,
-        "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+        "saved_at_utc": datetime.now(UTC).isoformat(),
         **report,
     }
     target.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def load_summary(path: str | Path) -> dict[str, Any]:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    return {key: payload[key] for key in ("model", "run_type", "n", "accuracy", "macro_accuracy", "valid_code_rate")}
-
-
-def paired_accuracy_comparison(
+def paired_execution_comparison(
     baseline: dict[str, Any],
     candidate: dict[str, Any],
     *,
     bootstrap_samples: int = 5_000,
     seed: int = 1234,
 ) -> dict[str, Any]:
-    """Compare correctness on identical IDs and bootstrap the paired accuracy delta."""
-    baseline_by_id = {str(row["example_id"]): bool(row["correct"]) for row in baseline["rows"]}
-    candidate_by_id = {str(row["example_id"]): bool(row["correct"]) for row in candidate["rows"]}
+    """Bootstrap tuned-minus-baseline execution accuracy on identical IDs."""
+    if bootstrap_samples < 1:
+        raise ValueError("bootstrap_samples must be positive.")
+    baseline_by_id = {str(row["example_id"]): bool(row["execution_correct"]) for row in baseline["rows"]}
+    candidate_by_id = {str(row["example_id"]): bool(row["execution_correct"]) for row in candidate["rows"]}
     if baseline_by_id.keys() != candidate_by_id.keys():
         raise ValueError("Baseline and candidate must contain identical evaluation example IDs.")
     ids = sorted(baseline_by_id)
     if not ids:
         raise ValueError("Cannot compare empty reports.")
-
     deltas = [int(candidate_by_id[item]) - int(baseline_by_id[item]) for item in ids]
     observed = sum(deltas) / len(deltas)
     rng = random.Random(seed)
@@ -316,7 +374,7 @@ def paired_accuracy_comparison(
     high_index = int(0.975 * (bootstrap_samples - 1))
     return {
         "n": len(ids),
-        "absolute_accuracy_gain": observed,
+        "absolute_execution_accuracy_gain": observed,
         "paired_bootstrap_95ci": [bootstrapped[low_index], bootstrapped[high_index]],
         "improved_examples": sum(delta == 1 for delta in deltas),
         "regressed_examples": sum(delta == -1 for delta in deltas),

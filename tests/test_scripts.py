@@ -35,6 +35,11 @@ class ScriptEntrypointTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(option, result.stdout)
 
+    def test_vllm_evaluator_checkpoints_predictions_before_scoring(self):
+        source = (ROOT / "scripts/evaluate_vllm.py").read_text(encoding="utf-8")
+        self.assertLess(source.index("write_jsonl(predictions_path"), source.index("score_predictions("))
+        self.assertIn("--force-generation", source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,9 @@ Execution scoring opens every SQLite database read-only, accepts only one parsed
 `SELECT`/`WITH` statement, enforces a timeout and row cap, and uses the official
 BIRD Mini-Dev set-of-result-rows equality rule. This is more meaningful than SQL
 string match, while normalized exact match remains available for diagnosis.
+Malformed generations are recorded as invalid SQL rather than aborting a run.
+Local vLLM predictions are saved before scoring and reused only when the model,
+evaluation hash, prompt protocol, and generation settings still match.
 
 No benchmark guarantees that one short run will improve a strong base model.
 The notebook prints “no held-out gain demonstrated” when the paired result does

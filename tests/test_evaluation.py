@@ -57,6 +57,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertIsNone(extract_sql("I cannot answer"))
         self.assertIsNone(extract_sql("DELETE FROM staff"))
         self.assertIsNone(extract_sql("SELECT name FROM staff; DROP TABLE staff"))
+        self.assertIsNone(extract_sql("SELECT name FROM staff WHERE note = 'unterminated"))
         self.assertEqual(
             normalize_sql("select NAME from STAFF where DEPT='sales'"),
             "SELECT name FROM staff WHERE dept = 'sales'",

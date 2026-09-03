@@ -102,7 +102,7 @@ def extract_sql(text: str) -> str | None:
     candidate = candidate[match.start() :].strip()
     try:
         parsed = sqlglot.parse(candidate, read="sqlite")
-    except sqlglot.errors.ParseError:
+    except sqlglot.errors.SqlglotError:
         return None
     if len(parsed) != 1 or parsed[0] is None:
         return None

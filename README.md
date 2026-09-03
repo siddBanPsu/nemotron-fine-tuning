@@ -9,11 +9,92 @@ This is a four-notebook, API-first and Brev-ready lab for adapting
    and measure the paired held-out gain;
 4. inspect true full-parameter SFT as a design-only multi-GPU handoff.
 
-The practical workshop is Notebooks 01–03. Notebook 01 needs no GPU. With the
-model prefetched, Notebook 03's bounded 4,096-example/64-step profile is intended
-to leave time for merge and evaluation within a one-hour GPU exercise on an
-80 GB-class H100 or a sharded 2×A100/H100 allocation. Runtime still depends on
-the exact GPU, storage, network, and container startup.
+The practical workshop is Notebooks 01–03. Notebook 01 needs no GPU. The bounded
+LoRA profile is suitable for a short, rehearsed H100 workshop, but **it is not a
+one-hour exercise on every 80 GB GPU**. A completed warm-cache run on 2×A100
+80 GB PCIe took about 6 hours 49 minutes for Notebook 03 alone. Read the measured
+runtime and cold-start notes below before choosing an instance or booking a lab.
+
+## Runtime: read this before renting a GPU
+
+The following is an observed end-to-end rehearsal completed on 2026-09-03, not
+a vendor benchmark or a runtime guarantee. It used two NVIDIA A100 80 GB PCIe
+GPUs, the pinned Python
+3.12 stack, 4,096 training rows, 2,048-token packing, GBS 32, and the resulting
+62 training steps. The Hugging Face model, Mini-Dev data, and converted Megatron
+checkpoint were already present, so a first-time download and conversion are
+**not** included.
+
+| Stage | Resources used | Observed time | What happened |
+| --- | --- | ---: | --- |
+| Notebook 02 local BF16 baseline | 1 of 2 A100s | 2.6 min | vLLM load, generation on 100 rows, and scoring; generation itself took 66 s |
+| Notebook 03 checkpoint check | CPU | 0.6 min | detected the existing Megatron checkpoint and skipped conversion |
+| Notebook 03 LoRA training | 2×A100, TP1/EP2 | 384.5 min | 62 steps; first step 477.5 s, later median 366.9 s |
+| Notebook 03 CPU merge | CPU/RAM | 19.9 min | merged the adapter into a ~61 GB Hugging Face checkpoint |
+| Notebook 03 merged-model evaluation | 1 A100 | 3.7 min | model load took 130.5 s; 100-row generation took 15 s |
+| **Notebook 03 timed-stage total** | mixed | **408.7 min / 6 h 49 min** | excludes the already-completed model download and base conversion |
+
+Notebooks 02 and 03 therefore occupied about 6 hours 51 minutes in this warm
+run. A cold run will be longer and network/storage dependent: it may need the
+~62 GB model download, ~800 MB Mini-Dev package, Hugging Face→Megatron
+conversion, dataset packing, and container/image setup. Provision a session
+with margin; do not use the 6 h 49 min measurement as a cold-instance ceiling.
+
+For a workshop that must finish within 60 minutes, use an H100 profile and
+rehearse the **same instance type, storage, image, and notebook revision** first.
+NVIDIA's H100 figures in [Hardware and honest scope](#hardware-and-honest-scope)
+are useful capacity guidance, but they are not a promise for an arbitrary cloud
+SKU. The completed A100 run demonstrates compatibility and quality gain, not
+one-hour suitability.
+
+Training prints one `Step Time` line per iteration. Use the median of the last
+few steps to estimate the remaining time:
+
+```text
+remaining training minutes ≈ remaining steps × median Step Time seconds / 60
+```
+
+In the observed A100 run, a stable ~367 s step time implied roughly six hours
+for 60 remaining steps. The training configuration saves the adapter at the
+final step, not at short intermediate intervals, so interrupting the training
+cell early can require restarting the training stage.
+
+### What a completed rehearsal demonstrated
+
+On the identical frozen 100-row Mini-Dev subset, that run improved SQL execution
+accuracy from 15% to 40%: +25 percentage points with a paired-bootstrap 95%
+interval of +15 to +35 points. Thirty examples improved, five regressed, and SQL
+validity rose from 46% to 98%. This is evidence that this particular run learned
+the task; it is not a claim about the full BIRD benchmark or a guarantee that
+every run will reproduce the same score.
+
+### Long-running-cell and rerun expectations
+
+- `NEMOTRON_PREFETCH_MODEL=1` moves the large model download and base conversion
+  into Launchable setup, so Jupyter opens later but Notebook 03 starts warmer.
+  With `0`, Jupyter opens sooner and the work moves into the notebooks.
+- The A100 rehearsal produced a training update about every six minutes. A quiet
+  interval between iterations is expected; verify the latest `Step Time` line
+  before assuming the kernel is stuck.
+- The merge deliberately runs with `--cpu`. Low GPU utilization during that
+  roughly 20-minute stage is expected, and sufficient host RAM and fast storage
+  still matter.
+- Do not terminate the instance when training reaches step 62. The warm run
+  still needed about 24 minutes for merge and evaluation before producing the
+  final paired result.
+- vLLM startup can take much longer than generation. In the merged evaluation,
+  loading 14 checkpoint shards took about 2 minutes 10 seconds while generation
+  took only 15 seconds.
+- Converted checkpoints and contract-matching raw vLLM predictions are reused.
+  A changed model revision, prompt, generation setting, or evaluation hash
+  intentionally invalidates prediction reuse.
+
+The successful run also printed noisy messages including the `pynvml`
+deprecation, unavailable `torchao`, a missing `triton_kernels.matmul_ogs`
+kernel, and some unrecognized MTP mapping lines during merge. In that exact run
+they were non-fatal. Do not ignore a non-zero subprocess exit: a stage counts as
+complete only when the notebook prints its final stage time and the expected
+report/checkpoint exists.
 
 ## Why Text2SQL is a better fine-tuning exercise
 
@@ -84,7 +165,7 @@ Sparse activation reduces compute, but all weights still occupy memory.
 | --- | --- | --- |
 | Hosted Lightning + Ultra | CPU and NVIDIA API key | 25 frozen rows/model; 50 calls total at 30 RPM |
 | Local BF16 baseline | 1× H100/A100 80 GB | vLLM on all 100 frozen rows |
-| LoRA workshop | 1× H100 80 GB or 2×A100/H100 80 GB | 4,096 rows, 2K packing, GBS 32, rank 32, ≤64 steps |
+| LoRA workshop | H100 80 GB recommended; 2×A100 80 GB PCIe supported as a long-run path | 4,096 rows, 2K packing, GBS 32, rank 32, 62 steps with pinned data |
 | Full-SFT notebook | Any notebook host | memory/topology design only; launches nothing |
 | External full SFT | ≥16×H100 80 GB / ≥1,200 GiB aggregate VRAM | hardware-gated driver; separately rehearse |
 
@@ -92,7 +173,10 @@ NVIDIA reports the complete 12,544-example official LoRA epoch at about 60
 minutes on one H100, 34 minutes on two, 18 on four, and 8 on eight, with roughly
 79/51/35/27 GB peak memory per GPU. On one GPU, its runbook reduces the model to
 the checkpoint's single MTP head; this lab does the same. These are NVIDIA's H100
-measurements, not claimed A100 timings.
+measurements, not claimed A100 timings, and they do not include this lab's model
+download, checkpoint conversion, merge, or evaluation. Do not extrapolate them
+by GPU count alone: GPU form factor/interconnect, storage, host RAM, software
+kernels, and cloud throttling can materially change the result.
 
 Full AdamW needs BF16 weights and gradients plus FP32 master weights/moments,
 activations, communication buffers, and workspaces. Notebook 04 does not pretend
@@ -163,7 +247,8 @@ configuration change cannot resume stale responses. Environment overrides in
 
 Follow [launchable/README.md](launchable/README.md). The Launchable uses:
 
-- VM mode and a recommended H100 80 GB (or a rehearsed A100 80 GB alternative);
+- VM mode and a recommended H100 80 GB (or an A100 80 GB alternative when a
+  multi-hour run is acceptable);
 - `nvcr.io/nvidia/nemo:26.08`, which supplies the matched Python 3.12,
   PyTorch/CUDA/Transformer Engine/Megatron stack;
 - NVIDIA driver 580.65.06+ for CUDA 13.x minor-version compatibility, with a real

@@ -8,8 +8,8 @@ checkpoints live on the configured data volume.
 ## Recommended Brev configuration
 
 - Mode: VM
-- GPU: 1×H100 80 GB for the normal workshop; 2×A100/H100 80 GB is a faster
-  expert-parallel option for LoRA
+- GPU: H100 80 GB for a short workshop; 2×A100 80 GB PCIe is supported but a
+  completed warm-cache 62-step run took 6 h 49 min for Notebook 03
 - Host RAM: 128 GB minimum
 - Disk: 300 GB minimum
 - Base driver: 580.65.06 or newer; 610.43.02+ is native for the pinned CUDA stack
@@ -93,7 +93,9 @@ curl -v http://127.0.0.1:8889/api
   100-row execution baseline; the process exits to release GPU memory.
 - Notebook 03 uses all visible GPUs by default for TP1/expert parallelism,
   trains at most 64 packed steps, merges, evaluates through vLLM, and computes
-  the paired execution delta.
+  the paired execution delta. With the pinned data it runs 62 steps; see the
+  [measured stage-by-stage timing](../README.md#runtime-read-this-before-renting-a-gpu)
+  before renting a GPU.
 - Notebook 04 is design-only and never launches full SFT.
 
 The host `.venv` deliberately contains no PyTorch. GPU notebooks must use the

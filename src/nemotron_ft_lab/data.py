@@ -1,4 +1,4 @@
-"""BIRD Text2SQL preparation helpers shared by the four notebooks."""
+"""BIRD Text2SQL preparation helpers shared by the five notebooks."""
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ def text2sql_user_content(schema: str, question: str, evidence: str = "") -> str
     return "\n\n".join(sections)
 
 
-def build_messages(row: dict[str, Any]) -> list[dict[str, str]]:
+def build_messages(row: dict[str, Any], *, system_prompt: str = "") -> list[dict[str, str]]:
     """Return the inference messages used by cloud and local baselines."""
     return [
-        {"role": "system", "content": ""},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": text2sql_user_content(
@@ -48,10 +48,11 @@ def render_training_record(
     *,
     include_reasoning: bool,
     eot_marker: str | None = None,
+    system_prompt: str = "",
 ) -> dict[str, Any]:
     """Render one prompt-completion row using Nemotron's native chat template."""
     prompt = tokenizer.apply_chat_template(
-        build_messages(row),
+        build_messages(row, system_prompt=system_prompt),
         tokenize=False,
         add_generation_prompt=True,
         enable_thinking=include_reasoning,

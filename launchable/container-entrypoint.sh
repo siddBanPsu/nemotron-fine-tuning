@@ -8,8 +8,12 @@ export HF_HOME="${HF_HOME:-/root/.cache/huggingface}"
 export MEGATRON_BRIDGE_DIR="/workspace/storage/Megatron-Bridge"
 
 BRIDGE_COMMIT="8bc33cd2ca1cd044e1520130f4c5e1f5e0181434"
-MODEL_ID="nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16"
-MODEL_REVISION="b3caaabed0263651a17dc1f2d4ce97e794f76c44"
+MODEL_PROFILE="${NEMOTRON_MODEL_PROFILE:-nano9b_workshop}"
+IFS=$'\t' read -r MODEL_ID MODEL_REVISION MEGATRON_CHECKPOINT_NAME < <(
+  python scripts/show_model_profile.py --profile "${MODEL_PROFILE}" --tsv
+)
+MEGATRON_CHECKPOINT="/workspace/storage/checkpoints/${MEGATRON_CHECKPOINT_NAME}"
+echo "Selected model profile: ${MODEL_PROFILE} (${MODEL_ID}@${MODEL_REVISION})"
 
 retry() {
   local attempt=1
@@ -54,12 +58,14 @@ python - <<'PY'
 from megatron.bridge.recipes.nemotronh import (
     nemotron_3_5_lightning_peft_config,
     nemotron_3_5_lightning_sft_config,
+    nemotron_nano_9b_v2_peft_config,
 )
 import vllm
 
 assert callable(nemotron_3_5_lightning_peft_config)
 assert callable(nemotron_3_5_lightning_sft_config)
-print("Megatron-Bridge Lightning PEFT and full-SFT recipes are importable.")
+assert callable(nemotron_nano_9b_v2_peft_config)
+print("Megatron-Bridge Nano PEFT plus Lightning PEFT/full-SFT recipes are importable.")
 print(f"vLLM local evaluation backend: {vllm.__version__}")
 PY
 
@@ -83,9 +89,10 @@ fi
 echo "[container 5/6] Optional reusable checkpoint conversion"
 if [ "${NEMOTRON_PREFETCH_MODEL:-0}" = "1" ]; then
   python scripts/convert_checkpoint.py \
+    --model-profile "${MODEL_PROFILE}" \
     --hf-model "${MODEL_ID}" \
     --revision "${MODEL_REVISION}" \
-    --output /workspace/storage/checkpoints/lightning35-megatron
+    --output "${MEGATRON_CHECKPOINT}"
 fi
 
 echo "[container 6/6] Starting JupyterLab"

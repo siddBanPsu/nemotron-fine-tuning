@@ -1,10 +1,10 @@
 schema_version: 1
-name: Nemotron 3.5 Lightning - Executable Text2SQL Fine-Tuning
+name: Nemotron Executable Text2SQL Fine-Tuning Workshop
 description: >-
-  Four evidence-led labs: compare hosted Lightning and Ultra on BIRD Mini-Dev,
-  freeze the exact local BF16 execution baseline with vLLM, fine-tune Lightning
-  using NVIDIA's official Text2SQL LoRA recipe and measure the paired held-out
-  gain, then inspect true full-parameter SFT as a design-only handoff.
+  Five evidence-led labs: compare hosted Lightning and Ultra, establish a
+  profile-matched local BF16 baseline, fine-tune Nano 9B v2 on one GPU for the
+  practical workshop, preserve Lightning 3.5 as an advanced two-GPU exercise,
+  and inspect true full-parameter SFT as a design-only handoff.
 
 source:
   type: public_git_repository
@@ -13,37 +13,50 @@ source:
 default_hardware:
   gpu: 1x NVIDIA H100 80 GB
   host_memory_gb: 128
-  disk_gb: 300
+  disk_gb: 200
   reason: >-
-    The BF16 model is about 62 GB. NVIDIA's official one-H100 Text2SQL LoRA
-    profile peaks near 79 GB at 2K sequence length; this lab uses the same
-    one-GPU MTP reduction and caps the workshop at 4,096 rows / 64 steps.
+    The default nano9b_workshop profile uses Megatron-Bridge's pinned one-GPU
+    H100 BF16 PEFT recipe. The lab conservatively recommends an 80 GB A100/H100
+    until the exact Brev SKU has a complete measured rehearsal.
 
 hardware_profiles:
-  - label: Recommended single-GPU workshop
-    gpu: 1x NVIDIA H100 80 GB
+  - label: Recommended one-GPU workshop
+    gpu: 1x NVIDIA A100 80 GB or 1x NVIDIA H100 80 GB
     host_memory_gb: 128
-    disk_gb: 300
-    notebooks: [01, 02, 03, 04-design]
+    disk_gb: 200
+    model_profile: nano9b_workshop
+    notebooks: [01, 02, 03, 05-design]
     status: >-
-      NVIDIA measures a complete official LoRA epoch at about 60 minutes. The
-      bounded workshop profile leaves time for merge and evaluation when model
-      download and conversion are prefetched.
-  - label: Two-GPU workshop
+      Uses 2,048 direct-SQL rows and at most 32 packed steps. The intended
+      warm-cache duration is under one hour, but this is an acceptance target,
+      not a measured runtime guarantee, until rehearsed on the chosen SKU.
+  - label: Experimental 48 GB Nano path
+    gpu: 1x NVIDIA L40S 48 GB
+    host_memory_gb: 128
+    disk_gb: 200
+    model_profile: nano9b_workshop
+    notebooks: [01, 02, 03, 05-design]
+    status: >-
+      The software gate permits this capacity, but the pinned recipe is a
+      one-H100 recipe. Rehearse memory headroom and runtime before a workshop.
+  - label: Advanced Lightning two-GPU path
     gpu: 2x NVIDIA A100 80 GB or 2x NVIDIA H100 80 GB
     host_memory_gb: 192
     disk_gb: 300
-    notebooks: [01, 02, 03, 04-design]
+    model_profile: lightning35_advanced
+    notebooks: [01, 02, 04, 05-design]
     status: >-
-      Notebook 03 uses TP1/EP2. NVIDIA reports about 51 GB/GPU and 34 minutes
-      for its complete two-H100 epoch; A100 timing must be measured on target.
-  - label: External full-SFT reference
+      Uses TP1/EP2, 4,096 rows, and at most 64 steps. The measured warm-cache
+      2xA100 run took 6 h 49 min for Notebook 04's train, merge, and evaluation.
+      It is not the one-hour workshop path.
+  - label: External Lightning full-SFT reference
     gpu: 16x NVIDIA H100 80 GB verified-reference gate
     host_memory_gb: 512
     disk_gb: 500
-    notebooks: [04-design, scripts/train_full.py]
+    model_profile: lightning35_advanced
+    notebooks: [05-design, scripts/train_full.py]
     status: >-
-      Notebook 04 launches nothing. The full-SFT driver is hardware-gated to
+      Notebook 05 launches nothing. The full-SFT driver is hardware-gated to
       NVIDIA's verified 4K reference of 16x H100 80 GB TP2/EP8.
 
 software:
@@ -64,13 +77,20 @@ network:
   public_tcp_udp_ports: []
 
 launch_parameters:
+  - name: NEMOTRON_MODEL_PROFILE
+    required: false
+    default: nano9b_workshop
+    allowed_values: [nano9b_workshop, lightning35_advanced]
+    description: >-
+      Selects the model prefetched by setup and the default in Notebook 02.
+      Notebook 03 is always Nano; Notebook 04 is always Lightning.
   - name: NEMOTRON_PREFETCH_MODEL
     required: false
     default: "0"
     allowed_values: ["0", "1"]
     description: >-
-      Set to 1 before a scheduled GPU workshop to download and convert the BF16
-      model; 0 opens the API notebook without waiting for the 62 GB checkpoint.
+      Set to 1 before a scheduled workshop to download and convert the selected
+      BF16 model; 0 opens the API notebook without waiting.
   - name: NEMOTRON_JUPYTER_PORT
     required: false
     default: "8889"
@@ -108,10 +128,11 @@ credentials:
     script, notebook output, or evaluation artifacts.
 
 time_budget:
-  counted_from: Jupyter ready; prefetch model and converted checkpoint before participant time
-  notebook_01_minutes: 5-15 on CPU after the first 800 MB Mini-Dev package download; 50 calls at 30 RPM
-  notebook_02_minutes: 10-20 on one 80 GB GPU, depending on vLLM startup and storage
-  notebook_03_minutes: bounded 64-step profile designed for the remaining workshop hour; exact A100/H100 timing requires target rehearsal
-  notebook_04_minutes: 5-10 design-only; no full-SFT job launches
+  counted_from: Jupyter ready with selected model and Megatron checkpoint prefetched
+  notebook_01_minutes: 5-15 on CPU after the first Mini-Dev download; 50 hosted calls at 30 RPM
+  notebook_02_nano: target 5-15 minutes; exact GPU and storage must be rehearsed
+  notebook_03_nano: target completion within 60 minutes warm-cache; not yet measured on Brev
+  notebook_04_lightning: measured 408.7 minutes on 2xA100 warm-cache; H100 timing not proven here
+  notebook_05_minutes: 5-10 design-only; no full-SFT job launches
 
 view_access: anyone_with_link

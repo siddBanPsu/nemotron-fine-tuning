@@ -9,6 +9,7 @@ from nemotron_ft_lab.hardware import (
     inspect_cuda,
     validate_full_sft_hardware,
     validate_inference_hardware,
+    validate_peft_hardware,
 )
 
 
@@ -18,9 +19,14 @@ class HardwareTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Secure Link on host port 8889"):
                 inspect_cuda()
 
-    def test_local_bf16_inference_requires_an_80_gb_class_gpu(self):
+    def test_profile_specific_memory_gates(self):
+        small = HardwareInventory(1, ("small GPU",), (12.0,), 12.0)
+        with self.assertRaisesRegex(RuntimeError, "20 GiB"):
+            validate_inference_hardware(small, "nano9b_workshop")
         with self.assertRaisesRegex(RuntimeError, "75 GiB"):
-            validate_inference_hardware(HardwareInventory(1, ("small GPU",), (24.0,), 24.0))
+            validate_inference_hardware(small, "lightning35_advanced")
+        with self.assertRaisesRegex(RuntimeError, "45 GiB"):
+            validate_peft_hardware(HardwareInventory(1, ("L4",), (24.0,), 24.0), "nano9b_workshop")
 
     def test_full_sft_is_gated_to_verified_16_h100_reference(self):
         eight_h100 = HardwareInventory(8, ("H100",) * 8, (80.0,) * 8, 640.0)

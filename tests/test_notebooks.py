@@ -8,12 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NotebookTests(unittest.TestCase):
-    def test_four_notebooks_are_valid_clean_and_compilable(self):
+    def test_five_notebooks_are_valid_clean_and_compilable(self):
         expected = [
             "01_cloud_api_baseline.ipynb",
             "02_local_bf16_baseline.ipynb",
-            "03_peft_lora.ipynb",
-            "04_full_finetuning_design.ipynb",
+            "03_nano9b_workshop_lora.ipynb",
+            "04_lightning_advanced_lora.ipynb",
+            "05_full_finetuning_design.ipynb",
         ]
         self.assertEqual(sorted(path.name for path in (ROOT / "notebooks").glob("*.ipynb")), expected)
         for name in expected:
@@ -37,27 +38,36 @@ class NotebookTests(unittest.TestCase):
         self.assertIn("input('Paste NVIDIA API key", text)
         self.assertNotIn("ipywidgets", text)
 
-    def test_local_and_peft_use_vllm_on_the_identical_holdout(self):
+    def test_local_and_both_peft_paths_use_vllm_on_matching_holdouts(self):
         local = (ROOT / "notebooks/02_local_bf16_baseline.ipynb").read_text(encoding="utf-8")
-        peft = (ROOT / "notebooks/03_peft_lora.ipynb").read_text(encoding="utf-8")
+        nano = (ROOT / "notebooks/03_nano9b_workshop_lora.ipynb").read_text(encoding="utf-8")
+        lightning = (ROOT / "notebooks/04_lightning_advanced_lora.ipynb").read_text(encoding="utf-8")
         baseline = "baseline_local_bf16_text2sql.json"
         self.assertIn("scripts/evaluate_vllm.py", local)
         self.assertIn(baseline, local)
-        self.assertIn(baseline, peft)
-        self.assertIn("paired_execution_comparison(baseline, tuned)", peft)
-        self.assertIn("--max-train-samples', '4096'", peft)
-        self.assertIn("--max-steps', '64'", peft)
-        self.assertIn("NEMOTRON_PEFT_NUM_GPUS", peft)
-        self.assertIn("TP=1, EP={N_GPUS}", peft)
+        self.assertIn("MODEL_PROFILE_NAME", local)
+        self.assertIn("nano9b_workshop", local)
+        self.assertIn("lightning35_advanced", local)
+        for peft in (nano, lightning):
+            self.assertIn(baseline, peft)
+            self.assertIn("paired_execution_comparison(baseline, tuned)", peft)
+            self.assertIn("NEMOTRON_PEFT_NUM_GPUS", peft)
+            self.assertIn("--model-profile", peft)
+            self.assertIn("EVALUATION_DIR", peft)
+            self.assertIn("TRAIN_DATA_DIR", peft)
+            self.assertNotIn("transformers.generate", peft)
+        self.assertIn("get_model_profile('nano9b_workshop')", nano)
+        self.assertIn("get_model_profile('lightning35_advanced')", lightning)
+        self.assertIn("'1'", nano)
+        self.assertIn("'2'", lightning)
         self.assertNotIn("AutoModelForCausalLM", local)
-        self.assertNotIn("transformers.generate", peft)
-        for text in (local, peft):
+        for text in (local, nano, lightning):
             self.assertIn("host port **8889**", text)
             self.assertIn("print('Python:', sys.executable)", text)
             self.assertIn("NEMOTRON_ARTIFACTS_DIR", text)
 
     def test_full_training_notebook_is_design_only(self):
-        text = (ROOT / "notebooks/04_full_finetuning_design.ipynb").read_text(encoding="utf-8")
+        text = (ROOT / "notebooks/05_full_finetuning_design.ipynb").read_text(encoding="utf-8")
         self.assertIn("DESIGN_ONLY = True", text)
         self.assertIn("validate_full_sft_hardware", text)
         self.assertIn("paired execution-accuracy delta", text)

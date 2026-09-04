@@ -6,6 +6,8 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from .model_profiles import ModelProfile, get_model_profile
+
 
 @dataclass(frozen=True)
 class HardwareInventory:
@@ -40,22 +42,36 @@ def inspect_cuda() -> HardwareInventory:
     return HardwareInventory(len(names), tuple(names), tuple(memory), sum(memory))
 
 
-def validate_inference_hardware(inventory: HardwareInventory) -> None:
+def _profile(value: str | ModelProfile | None) -> ModelProfile:
+    return value if isinstance(value, ModelProfile) else get_model_profile(value)
+
+
+def validate_inference_hardware(
+    inventory: HardwareInventory, model_profile: str | ModelProfile | None = None
+) -> None:
+    profile = _profile(model_profile)
     if inventory.gpu_count < 1:
         raise RuntimeError("Local BF16 inference requires at least one CUDA GPU.")
-    if inventory.total_memory_gib < 75:
+    if inventory.total_memory_gib < profile.min_inference_vram_gib:
         raise RuntimeError(
-            "The local BF16 checkpoint needs one 80 GB GPU or at least 75 GiB aggregate visible VRAM."
+            f"{profile.display_name} local BF16 inference requires at least "
+            f"{profile.min_inference_vram_gib:g} GiB aggregate visible VRAM; "
+            f"detected {inventory.total_memory_gib:.1f} GiB."
         )
 
 
-def validate_peft_hardware(inventory: HardwareInventory) -> None:
+def validate_peft_hardware(
+    inventory: HardwareInventory, model_profile: str | ModelProfile | None = None
+) -> None:
+    profile = _profile(model_profile)
     if inventory.gpu_count < 1:
         raise RuntimeError("PEFT requires at least one CUDA GPU.")
-    if inventory.total_memory_gib < 75:
+    largest_gpu = max(inventory.memory_gib, default=0.0)
+    if largest_gpu < profile.min_peft_vram_gib:
         raise RuntimeError(
-            "The BF16 PEFT path needs about 79 GiB on one H100 at the official 2K profile. "
-            "Use one 80 GB GPU or shard across enough GPUs to provide at least 75 GiB total."
+            f"{profile.display_name} PEFT requires a GPU with at least "
+            f"{profile.min_peft_vram_gib:g} GiB visible VRAM; the largest detected GPU has "
+            f"{largest_gpu:.1f} GiB. The documented workshop target remains one 80 GB A100/H100."
         )
 
 
@@ -64,5 +80,5 @@ def validate_full_sft_hardware(inventory: HardwareInventory) -> None:
         raise RuntimeError(
             "True full-parameter SFT is intentionally gated to NVIDIA's currently verified "
             "16x H100 80 GB reference (TP=2, EP=8), with at least 1,200 GiB aggregate "
-            "visible VRAM. Use Notebook 03 on a one- or two-GPU workshop allocation."
+            "visible VRAM. Use Notebook 03 (Nano) or Notebook 04 (Lightning) for PEFT."
         )

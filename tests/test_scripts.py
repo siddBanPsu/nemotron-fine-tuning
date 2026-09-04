@@ -19,11 +19,13 @@ class ScriptEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--profile", result.stdout)
+        self.assertIn("--model-profile", result.stdout)
 
     def test_data_and_vllm_entrypoints_expose_help_without_gpu_imports(self):
         for script, option in (
             ("scripts/prepare_text2sql.py", "--evaluation-only"),
             ("scripts/evaluate_vllm.py", "--tensor-parallel-size"),
+            ("scripts/show_model_profile.py", "--list"),
         ):
             result = subprocess.run(
                 [sys.executable, "-I", script, "--help"],
@@ -39,6 +41,8 @@ class ScriptEntrypointTests(unittest.TestCase):
         source = (ROOT / "scripts/evaluate_vllm.py").read_text(encoding="utf-8")
         self.assertLess(source.index("write_jsonl(predictions_path"), source.index("score_predictions("))
         self.assertIn("--force-generation", source)
+        self.assertIn('parser.add_argument("--max-num-seqs", type=int, default=64)', source)
+        self.assertIn('engine_kwargs["mamba_ssm_cache_dtype"]', source)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,6 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 from nemotron_ft_lab.constants import (
     DEFAULT_EVALUATION_SIZE,
     DEFAULT_MAX_SEQUENCE_LENGTH,
-    DEFAULT_MAX_TRAIN_SAMPLES,
     DEFAULT_SEED,
     EVAL_DATASET_NAME,
     EVAL_EXCLUDED_QUESTION_IDS,
@@ -27,8 +26,6 @@ from nemotron_ft_lab.constants import (
     MINIDEV_ARCHIVE_FILE_ID,
     MINIDEV_ARCHIVE_SHA256,
     MINIDEV_ARCHIVE_URL,
-    MODEL_ID,
-    MODEL_REVISION,
     OFFICIAL_COOKBOOK_REPOSITORY,
     OFFICIAL_COOKBOOK_REVISION,
     REASONING_DATASET_ID,
@@ -48,6 +45,7 @@ from nemotron_ft_lab.data import (
     sha256_file,
     write_jsonl,
 )
+from nemotron_ft_lab.model_profiles import get_model_profile
 
 
 def _download_with_resume(url: str, destination: Path, expected_bytes: int, expected_sha256: str) -> str:
@@ -204,8 +202,10 @@ def prepare_evaluation(output_dir: Path, *, size: int, seed: int, force: bool) -
 def prepare_training(
     output_dir: Path,
     *,
+    model_profile: str,
     model: str,
     revision: str,
+    system_prompt: str,
     max_sequence_length: int,
     max_train_samples: int,
     seed: int,
@@ -219,8 +219,10 @@ def prepare_training(
     manifest_path = output_dir / "training_manifest.json"
     signature = {
         "training_protocol_version": TRAINING_PROTOCOL_VERSION,
+        "model_profile": model_profile,
         "model": model,
         "revision": revision,
+        "system_prompt": system_prompt,
         "max_sequence_length": max_sequence_length,
         "max_train_samples": max_train_samples,
         "seed": seed,
@@ -253,7 +255,13 @@ def prepare_training(
     rendered = []
     filtered_for_length = 0
     for row, is_reasoning in candidates:
-        record = render_training_record(row, tokenizer, include_reasoning=is_reasoning, eot_marker=eot_marker)
+        record = render_training_record(
+            row,
+            tokenizer,
+            include_reasoning=is_reasoning,
+            eot_marker=eot_marker,
+            system_prompt=system_prompt,
+        )
         if record["length"] > max_sequence_length:
             filtered_for_length += 1
             continue
@@ -292,31 +300,47 @@ def parse_args() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--evaluation-only", action="store_true")
     mode.add_argument("--training-only", action="store_true")
-    parser.add_argument("--model", default=MODEL_ID)
-    parser.add_argument("--revision", default=MODEL_REVISION)
+    parser.add_argument("--model-profile", default=None)
+    parser.add_argument("--model")
+    parser.add_argument("--revision")
     parser.add_argument("--evaluation-size", type=int, default=DEFAULT_EVALUATION_SIZE)
     parser.add_argument("--max-sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH)
-    parser.add_argument("--max-train-samples", type=int, default=DEFAULT_MAX_TRAIN_SAMPLES)
+    parser.add_argument("--max-train-samples", type=int)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--no-reasoning", action="store_true")
+    reasoning = parser.add_mutually_exclusive_group()
+    reasoning.add_argument("--with-reasoning", action="store_true")
+    reasoning.add_argument("--no-reasoning", action="store_true")
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    profile = get_model_profile(args.model_profile)
+    model = args.model or profile.model_id
+    revision = profile.revision if args.revision is None else args.revision
+    max_train_samples = (
+        profile.default_train_samples if args.max_train_samples is None else args.max_train_samples
+    )
+    include_reasoning = profile.include_reasoning
+    if args.with_reasoning:
+        include_reasoning = True
+    elif args.no_reasoning:
+        include_reasoning = False
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if not args.training_only:
         prepare_evaluation(args.output_dir, size=args.evaluation_size, seed=args.seed, force=args.force)
     if not args.evaluation_only:
         prepare_training(
             args.output_dir,
-            model=args.model,
-            revision=args.revision,
+            model_profile=profile.name,
+            model=model,
+            revision=revision,
+            system_prompt=profile.system_prompt,
             max_sequence_length=args.max_sequence_length,
-            max_train_samples=args.max_train_samples,
+            max_train_samples=max_train_samples,
             seed=args.seed,
-            include_reasoning=not args.no_reasoning,
+            include_reasoning=include_reasoning,
             force=args.force,
         )
 

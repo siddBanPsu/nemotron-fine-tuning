@@ -3,9 +3,9 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nemotron-lightning-finetuning-lab"
-version = "0.2.0"
-description = "Executable Text2SQL evaluation and Brev-ready Nemotron 3.5 Lightning LoRA labs"
+name = "nemotron-text2sql-finetuning-lab"
+version = "0.3.0"
+description = "Executable Text2SQL evaluation with one-GPU Nemotron Nano and advanced Lightning LoRA labs"
 requires-python = ">=3.12,<3.13"
 dependencies = []
 

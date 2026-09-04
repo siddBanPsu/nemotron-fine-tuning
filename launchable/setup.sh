@@ -7,6 +7,7 @@ MINIMUM_DRIVER_VERSION="${NEMOTRON_MINIMUM_DRIVER_VERSION:-580.65.06}"
 NATIVE_DRIVER_VERSION="610.43.02"
 JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
+MODEL_PROFILE="${NEMOTRON_MODEL_PROFILE:-nano9b_workshop}"
 REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotron-fine-tuning.git}"
 REPOSITORY_REF="${NEMOTRON_REPOSITORY_REF:-main}"
 REPOSITORY_MODE="${NEMOTRON_REPOSITORY_MODE:-auto}"
@@ -50,6 +51,16 @@ case "${PREFETCH_MODEL}" in
     exit 1
     ;;
 esac
+
+case "${MODEL_PROFILE}" in
+  nano9b_workshop) DISK_GUIDANCE_GB=200 ;;
+  lightning35_advanced) DISK_GUIDANCE_GB=300 ;;
+  *)
+    echo "NEMOTRON_MODEL_PROFILE must be nano9b_workshop or lightning35_advanced; received '${MODEL_PROFILE}'." >&2
+    exit 1
+    ;;
+esac
+echo "Selected model profile: ${MODEL_PROFILE}"
 
 case "${REPOSITORY_MODE}" in
   auto|local|bootstrap) ;;
@@ -221,7 +232,7 @@ echo "[3/7] Preparing persistent model/checkpoint storage"
 if ! mkdir -p \
   "${STORAGE_DIR}" "${HF_CACHE_DIR}" "${ARTIFACTS_DIR}" "${CACHE_DIR}" "${TEMP_DIR}"; then
   echo "Could not create persistent storage. The selected filesystem may be full." >&2
-  echo "Set NEMOTRON_DATA_ROOT to an absolute path on a volume with roughly 300 GB available." >&2
+  echo "Set NEMOTRON_DATA_ROOT to an absolute path on a volume with roughly ${DISK_GUIDANCE_GB} GB available." >&2
   exit 1
 fi
 echo "Checkpoint storage: ${STORAGE_DIR}"
@@ -275,7 +286,10 @@ docker run --detach \
   --ulimit stack=67108864 \
   -p "127.0.0.1:${JUPYTER_PORT}:8888" \
   -e "NEMOTRON_PREFETCH_MODEL=${PREFETCH_MODEL}" \
+  -e "NEMOTRON_MODEL_PROFILE=${MODEL_PROFILE}" \
   -e "NEMOTRON_ARTIFACTS_DIR=/workspace/launchable/artifacts" \
+  -e NVIDIA_API_KEY \
+  -e HF_TOKEN \
   -e "HF_HOME=/root/.cache/huggingface" \
   -e "XDG_CACHE_HOME=/workspace/cache/xdg" \
   -e "PIP_CACHE_DIR=/workspace/cache/pip" \

@@ -1,5 +1,18 @@
 # Third-party inputs and attribution
 
+## NVIDIA Nemotron Nano 9B v2
+
+- Workshop model: `nvidia/NVIDIA-Nemotron-Nano-9B-v2`
+- Pinned model revision: `6533e8de2c68e4536bf7c411d7a3ce5734111476`
+- Model terms: NVIDIA Open Model License Agreement, linked from the model card
+- Megatron-Bridge runtime revision: `8bc33cd2ca1cd044e1520130f4c5e1f5e0181434`
+
+The model card specifies `/no_think` for reasoning-off prompts, greedy decoding
+in that mode, and a float32 Mamba SSM cache for accurate vLLM inference. This
+repository applies those settings to both the Nano BF16 baseline and merged
+LoRA evaluation. The pinned Bridge revision contains the one-GPU Nano PEFT
+recipe; no model weights are redistributed.
+
 ## NVIDIA Nemotron 3.5 Lightning and Ultra
 
 - Customization model: `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`

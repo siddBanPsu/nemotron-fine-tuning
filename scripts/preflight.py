@@ -20,16 +20,23 @@ from nemotron_ft_lab.hardware import (
     validate_inference_hardware,
     validate_peft_hardware,
 )
+from nemotron_ft_lab.model_profiles import get_model_profile
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", choices=("api", "inference", "peft", "full"), default="inference")
+    parser.add_argument("--model-profile", default=None)
     args = parser.parse_args()
+
+    model_profile = None if args.profile == "api" else get_model_profile(args.model_profile)
 
     inventory = None if args.profile == "api" else inspect_cuda()
     checks = {
         "python": sys.version.split()[0],
+        "model_profile": (
+            model_profile.as_dict() if model_profile is not None else "not required for API baseline"
+        ),
         "docker_visible": shutil.which("nvidia-smi") is not None,
         "hardware": inventory.as_dict() if inventory is not None else "not required for API baseline",
         "packages": {},
@@ -62,12 +69,14 @@ def main() -> None:
             raise RuntimeError(f"API baseline dependencies are missing: {missing}")
     elif args.profile == "inference":
         assert inventory is not None
-        validate_inference_hardware(inventory)
+        assert model_profile is not None
+        validate_inference_hardware(inventory, model_profile)
         if checks["packages"]["vllm"] is None:
             raise RuntimeError("Local inference requires vLLM from the GPU container.")
     elif args.profile == "peft":
         assert inventory is not None
-        validate_peft_hardware(inventory)
+        assert model_profile is not None
+        validate_peft_hardware(inventory, model_profile)
         if not checks["packages"]["megatron.bridge"]:
             raise RuntimeError("PEFT requires the pinned Megatron-Bridge source path.")
     elif args.profile == "full":

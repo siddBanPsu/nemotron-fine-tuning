@@ -12,15 +12,15 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from megatron.bridge import AutoBridge
 
-from nemotron_ft_lab.constants import MODEL_ID, MODEL_REVISION
+from nemotron_ft_lab.model_profiles import LIGHTNING35_ADVANCED
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--megatron-checkpoint", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--hf-model", default=MODEL_ID)
-    parser.add_argument("--revision", default=MODEL_REVISION)
+    parser.add_argument("--hf-model", default=LIGHTNING35_ADVANCED.model_id)
+    parser.add_argument("--revision", default=LIGHTNING35_ADVANCED.revision)
     args = parser.parse_args()
 
     source = Path(args.megatron_checkpoint)

@@ -14,16 +14,17 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from nemotron_ft_lab.constants import MODEL_ID, MODEL_REVISION
 from nemotron_ft_lab.data import build_messages, read_jsonl, write_jsonl
 from nemotron_ft_lab.evaluation import save_report, score_predictions
+from nemotron_ft_lab.model_profiles import get_model_profile
 
 
 def parse_args() -> argparse.Namespace:
     artifacts = Path(os.environ.get("NEMOTRON_ARTIFACTS_DIR", "artifacts"))
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default=MODEL_ID)
-    parser.add_argument("--revision", default=MODEL_REVISION)
+    parser.add_argument("--model-profile", default=None)
+    parser.add_argument("--model")
+    parser.add_argument("--revision")
     parser.add_argument("--data-dir", type=Path, default=artifacts / "data/bird-text2sql")
     parser.add_argument("--evaluation", type=Path)
     parser.add_argument("--output", type=Path, required=True)
@@ -31,8 +32,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-type", required=True)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--max-model-len", type=int, default=8192)
+    parser.add_argument("--max-num-seqs", type=int, default=64)
     parser.add_argument("--max-tokens", type=int, default=512)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.92)
+    parser.add_argument("--mamba-ssm-cache-dtype")
     parser.add_argument("--force-generation", action="store_true")
     return parser.parse_args()
 
@@ -57,6 +60,19 @@ def _model_cache_identity(model: str, revision: str) -> str:
 
 def main() -> None:
     args = parse_args()
+    profile = get_model_profile(args.model_profile)
+    args.model = args.model or profile.model_id
+    args.revision = profile.revision if args.revision is None else args.revision
+    if (
+        profile.mamba_ssm_cache_dtype
+        and args.mamba_ssm_cache_dtype
+        and args.mamba_ssm_cache_dtype != profile.mamba_ssm_cache_dtype
+    ):
+        raise ValueError(
+            f"{profile.name} requires --mamba-ssm-cache-dtype "
+            f"{profile.mamba_ssm_cache_dtype} for the accuracy contract."
+        )
+    mamba_ssm_cache_dtype = args.mamba_ssm_cache_dtype or profile.mamba_ssm_cache_dtype
     evaluation_path = args.evaluation or args.data_dir / "evaluation.jsonl"
     rows = read_jsonl(evaluation_path)
     evaluation_manifest = json.loads((args.data_dir / "evaluation_manifest.json").read_text(encoding="utf-8"))
@@ -66,15 +82,20 @@ def main() -> None:
     predictions_manifest_path = predictions_path.with_suffix(predictions_path.suffix + ".manifest.json")
     generation_contract = {
         "model": args.model,
+        "model_profile": profile.name,
         "revision": args.revision or "local-merged-checkpoint",
         "model_cache_identity": _model_cache_identity(args.model, args.revision),
         "evaluation_sha256": evaluation_manifest["evaluation_sha256"],
         "prompt_protocol": "bird-schema-question-evidence-v1",
+        "system_prompt": profile.system_prompt,
+        "enable_thinking": profile.enable_thinking,
         "max_model_len": args.max_model_len,
+        "max_num_seqs": args.max_num_seqs,
         "max_tokens": args.max_tokens,
         "tensor_parallel_size": args.tensor_parallel_size,
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "dtype": "bfloat16",
+        "mamba_ssm_cache_dtype": mamba_ssm_cache_dtype,
     }
     expected_ids = [str(row["example_id"]) for row in rows]
     can_reuse = predictions_path.is_file() and predictions_manifest_path.is_file()
@@ -104,10 +125,10 @@ def main() -> None:
         )
         prompts = [
             tokenizer.apply_chat_template(
-                build_messages(row),
+                build_messages(row, system_prompt=profile.system_prompt),
                 tokenize=False,
                 add_generation_prompt=True,
-                enable_thinking=False,
+                enable_thinking=profile.enable_thinking,
             )
             for row in rows
         ]
@@ -118,12 +139,15 @@ def main() -> None:
             "dtype": "bfloat16",
             "tensor_parallel_size": args.tensor_parallel_size,
             "max_model_len": args.max_model_len,
+            "max_num_seqs": args.max_num_seqs,
             "gpu_memory_utilization": args.gpu_memory_utilization,
             "enforce_eager": True,
         }
         if args.revision:
             engine_kwargs["revision"] = args.revision
             engine_kwargs["tokenizer_revision"] = args.revision
+        if mamba_ssm_cache_dtype:
+            engine_kwargs["mamba_ssm_cache_dtype"] = mamba_ssm_cache_dtype
         generation_started = time.perf_counter()
         llm = LLM(**engine_kwargs)
         outputs = llm.generate(
@@ -152,6 +176,7 @@ def main() -> None:
             "generation_wall_time_seconds": generation_seconds,
             "scoring_wall_time_seconds": scoring_seconds,
             "backend": "vllm",
+            "model_profile": profile.name,
             "precision": "BF16",
             "checkpoint_revision": args.revision or "local-merged-checkpoint",
             "tensor_parallel_size": args.tensor_parallel_size,

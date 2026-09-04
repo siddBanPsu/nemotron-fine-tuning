@@ -3,10 +3,27 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from nemotron_ft_lab.constants import MEGATRON_BRIDGE_REVISION
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class LaunchableTests(unittest.TestCase):
+    def test_nano_is_default_and_profile_controls_prefetch_conversion(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        entrypoint = (ROOT / "launchable/container-entrypoint.sh").read_text(encoding="utf-8")
+        manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")
+        self.assertIn('NEMOTRON_MODEL_PROFILE:-nano9b_workshop', setup)
+        self.assertIn('NEMOTRON_MODEL_PROFILE:-nano9b_workshop', entrypoint)
+        self.assertIn('default: nano9b_workshop', manifest)
+        self.assertIn('allowed_values: [nano9b_workshop, lightning35_advanced]', manifest)
+        self.assertIn('python scripts/show_model_profile.py --profile "${MODEL_PROFILE}" --tsv', entrypoint)
+        self.assertIn('--model-profile "${MODEL_PROFILE}"', entrypoint)
+        self.assertIn('nemotron_nano_9b_v2_peft_config', entrypoint)
+        self.assertIn(MEGATRON_BRIDGE_REVISION, entrypoint)
+        self.assertIn('-e NVIDIA_API_KEY', setup)
+        self.assertIn('-e HF_TOKEN', setup)
+
     def test_brev_host_port_avoids_managed_jupyter_default(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
         manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")

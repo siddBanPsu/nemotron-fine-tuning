@@ -13,15 +13,21 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 import torch
 from megatron.bridge import AutoBridge
 
-from nemotron_ft_lab.constants import MODEL_ID, MODEL_REVISION
+from nemotron_ft_lab.model_profiles import get_model_profile
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--hf-model", default=MODEL_ID)
-    parser.add_argument("--revision", default=MODEL_REVISION)
-    parser.add_argument("--output", default="/workspace/storage/checkpoints/lightning35-megatron")
+    parser.add_argument("--model-profile", default=None)
+    parser.add_argument("--hf-model")
+    parser.add_argument("--revision")
+    parser.add_argument("--output")
     args = parser.parse_args()
+
+    profile = get_model_profile(args.model_profile)
+    args.hf_model = args.hf_model or profile.model_id
+    args.revision = profile.revision if args.revision is None else args.revision
+    args.output = args.output or f"/workspace/storage/checkpoints/{profile.megatron_checkpoint_name}"
 
     output = Path(args.output)
     marker = output / "latest_checkpointed_iteration.txt"

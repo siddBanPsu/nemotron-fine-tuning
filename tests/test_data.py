@@ -54,6 +54,10 @@ class DataTests(unittest.TestCase):
         messages = build_messages({"schema": "S", "question": "Q", "evidence": "E"})
         self.assertEqual(messages[0], {"role": "system", "content": ""})
         self.assertEqual(messages[1]["content"], "S\n\nQ\n\nE")
+        nano_messages = build_messages(
+            {"schema": "S", "question": "Q", "evidence": "E"}, system_prompt="/no_think"
+        )
+        self.assertEqual(nano_messages[0], {"role": "system", "content": "/no_think"})
 
     def test_training_render_supports_direct_and_reasoning_examples(self):
         tokenizer = FakeTokenizer()

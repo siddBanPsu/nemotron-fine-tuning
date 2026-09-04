@@ -1,7 +1,11 @@
 """Pinned inputs and workshop defaults for the Text2SQL lab."""
 
-MODEL_ID = "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16"
-MODEL_REVISION = "b3caaabed0263651a17dc1f2d4ce97e794f76c44"
+from .model_profiles import DEFAULT_MODEL_PROFILE
+
+# Backward-compatible aliases point to the default one-GPU workshop model.
+# Profile-aware code should call get_model_profile() instead.
+MODEL_ID = DEFAULT_MODEL_PROFILE.model_id
+MODEL_REVISION = DEFAULT_MODEL_PROFILE.revision
 
 NVIDIA_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NVIDIA_API_LIGHTNING_MODEL_ID = "nvidia/nemotron-3.5-lightning-30b-a3b"
@@ -15,6 +19,7 @@ NVIDIA_API_MODEL_VARIANT = NVIDIA_API_LIGHTNING_MODEL_VARIANT
 # these BIRD train mirrors. Revisions are pinned so reruns do not silently move.
 OFFICIAL_COOKBOOK_REPOSITORY = "NVIDIA-NeMo/Nemotron"
 OFFICIAL_COOKBOOK_REVISION = "ccbea41e1ccb8a9bda9169ca83f19d18e39b9cdc"
+MEGATRON_BRIDGE_REVISION = "8bc33cd2ca1cd044e1520130f4c5e1f5e0181434"
 TRAIN_DATASET_ID = "xu3kev/BIRD-SQL-data-train"
 TRAIN_DATASET_REVISION = "9122256f9d14752ed80fb9b7d158e21d9f9261aa"
 REASONING_DATASET_ID = "meowterspace45/bird-sql-train-with-reasoning"
@@ -35,7 +40,7 @@ MINIDEV_ARCHIVE_SHA256 = "aeb211c0e39010bbdae3838bb5e8bd27dc446ed77495b1709f85cc
 DEFAULT_SEED = 1234
 DEFAULT_EVALUATION_SIZE = 100
 DEFAULT_API_EVALUATION_SIZE = 25
-DEFAULT_MAX_TRAIN_SAMPLES = 4096
+DEFAULT_MAX_TRAIN_SAMPLES = DEFAULT_MODEL_PROFILE.default_train_samples
 DEFAULT_MAX_SEQUENCE_LENGTH = 2048
-DEFAULT_MAX_STEPS = 64
+DEFAULT_MAX_STEPS = DEFAULT_MODEL_PROFILE.default_max_steps
 TRAINING_PROTOCOL_VERSION = 1

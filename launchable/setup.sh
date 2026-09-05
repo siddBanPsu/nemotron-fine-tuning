@@ -220,9 +220,11 @@ if ! wait_for_nvidia_driver; then
   exit 1
 fi
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv
-mapfile -t DRIVER_VERSIONS < <(
-  nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits
-)
+# A while-read loop keeps this readable on hosts whose bash predates mapfile.
+DRIVER_VERSIONS=()
+while IFS= read -r REPORTED_VERSION; do
+  [ -n "${REPORTED_VERSION}" ] && DRIVER_VERSIONS+=("${REPORTED_VERSION}")
+done < <(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits)
 if [ "${#DRIVER_VERSIONS[@]}" -eq 0 ]; then
   echo "No NVIDIA driver version was reported by nvidia-smi." >&2
   exit 1
@@ -247,10 +249,27 @@ for DRIVER_VERSION in "${DRIVER_VERSIONS[@]}"; do
     echo "The container CUDA smoke test after the pull must pass before Jupyter starts."
   fi
 done
-if ! docker info >/dev/null 2>&1; then
-  echo "Docker is installed, but the daemon is unavailable or this user lacks access." >&2
-  echo "Run 'docker info' directly for the host-specific error before retrying setup." >&2
-  exit 1
+# A provisioning script that restarts Docker repeatedly can trip systemd's
+# start rate limiter, leaving the daemon briefly down or mid-restart. Wait
+# rather than failing a workshop instance that is about to become healthy.
+DOCKER_WAITED=0
+until docker info >/dev/null 2>&1; do
+  if (( DOCKER_WAITED >= DRIVER_WAIT_SECONDS )); then
+    echo "Docker is installed, but the daemon stayed unavailable for ${DRIVER_WAIT_SECONDS}s or this user lacks access." >&2
+    echo "Run 'docker info' directly for the host-specific error before retrying setup." >&2
+    echo "If systemd reports 'start-limit-hit', the daemon was restarted too often; clear it with:" >&2
+    echo "  sudo systemctl reset-failed docker.service && sudo systemctl start docker.service" >&2
+    echo "Then confirm the configuration with 'sudo dockerd --validate --config-file /etc/docker/daemon.json'." >&2
+    exit 1
+  fi
+  if (( DOCKER_WAITED == 0 )); then
+    echo "The Docker daemon is not answering yet; waiting up to ${DRIVER_WAIT_SECONDS}s in case it is still restarting."
+  fi
+  sleep 5
+  DOCKER_WAITED=$((DOCKER_WAITED + 5))
+done
+if (( DOCKER_WAITED > 0 )); then
+  echo "Docker daemon answered after ${DOCKER_WAITED}s."
 fi
 if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   echo "Replacing existing ${CONTAINER_NAME} container"

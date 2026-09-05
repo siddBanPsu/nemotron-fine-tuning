@@ -163,7 +163,45 @@ sudo systemctl status instance-oneshot.service --no-pager
 ```
 
 A failure within seconds is usually one of: no GPU driver yet, Docker not
-ready, or a rejected launch parameter. The driver case is handled explicitly —
+ready, or a rejected launch parameter.
+
+### Observed: Brev's own bootstrap fails before this launchable runs
+
+On one Brev instance the unit failed with `NVIDIA driver installation failed`,
+but that message was misleading. The journal showed Brev's bootstrap restarting
+`docker.service` twice within a second after configuring the NVIDIA runtime;
+the second restart failed, and its error handler reported it as a driver
+problem. The driver (580.173.02) and `/etc/docker/daemon.json` were both fine —
+`dockerd --validate` returned `configuration OK` and Docker started normally
+afterwards. Repeated rapid restarts trip systemd's start rate limiter.
+
+Confirm which layer actually failed before blaming the GPU:
+
+```bash
+sudo journalctl -xeu docker.service --no-pager | tail -60
+sudo dockerd --validate --config-file /etc/docker/daemon.json
+nvidia-smi
+```
+
+When Docker and the driver are healthy, the instance needs no recreation. Brev's
+oneshot failing only means this repository's setup never started, so run it
+yourself:
+
+```bash
+sudo systemctl reset-failed instance-oneshot.service
+bash launchable/check_driver.sh
+export NEMOTRON_DATA_ROOT=/path/to/large/persistent/volume/nemotron-fine-tuning
+bash launchable/setup.sh
+```
+
+If Docker itself is rate-limited rather than misconfigured:
+
+```bash
+sudo systemctl reset-failed docker.service && sudo systemctl start docker.service
+```
+
+setup.sh also waits up to `NEMOTRON_DRIVER_WAIT_SECONDS` for the daemon to
+answer, so it survives a restart that is still in progress. The driver case is handled explicitly —
 setup waits up to `NEMOTRON_DRIVER_WAIT_SECONDS` (default 300) for `nvidia-smi`
 to answer, because a new VM often finishes loading its driver after the
 lifecycle service starts, then fails with a specific message rather than a bare

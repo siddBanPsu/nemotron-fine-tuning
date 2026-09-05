@@ -12,13 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SETUP = ROOT / "launchable/setup.sh"
 
 
-def run_setup(*, nvidia_smi: str | None, wait_seconds: str = "0"):
+def run_setup(*, nvidia_smi: str | None, wait_seconds: str = "0", docker: str | None = None):
     """Run setup.sh far enough to exercise the driver gate, with stub binaries."""
     with tempfile.TemporaryDirectory() as directory:
         stub_dir = Path(directory)
-        docker = stub_dir / "docker"
-        docker.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-        docker.chmod(0o755)
+        docker_stub = stub_dir / "docker"
+        docker_stub.write_text(docker or "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        docker_stub.chmod(0o755)
         if nvidia_smi is not None:
             stub = stub_dir / "nvidia-smi"
             stub.write_text(nvidia_smi, encoding="utf-8")
@@ -34,6 +34,14 @@ def run_setup(*, nvidia_smi: str | None, wait_seconds: str = "0"):
             env=environment,
             check=False,
         )
+
+
+HEALTHY_NVIDIA_SMI = (
+    "#!/usr/bin/env bash\n"
+    'if [[ "$*" == *noheader* ]]; then echo "595.91.07"; exit 0; fi\n'
+    'if [[ "$*" == -L ]]; then echo "GPU 0: Stub"; exit 0; fi\n'
+    'echo "0, Stub GPU, 81920 MiB, 8.0, 595.91.07"\n'
+)
 
 
 class SetupDriverWaitTests(unittest.TestCase):
@@ -65,6 +73,17 @@ class SetupDriverWaitTests(unittest.TestCase):
         self.assertIn("NVIDIA driver answered after", result.stdout)
         # The run continues past the driver gate; later stages need real Docker.
         self.assertNotIn("exposes no NVIDIA driver", result.stderr)
+
+    def test_an_unavailable_docker_daemon_is_waited_for_then_explained(self):
+        # 'docker info' fails the way a rate-limited daemon does.
+        result = run_setup(
+            nvidia_smi=HEALTHY_NVIDIA_SMI,
+            docker='#!/usr/bin/env bash\nif [[ "$1" == "info" ]]; then exit 1; fi\nexit 0\n',
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("stayed unavailable", result.stderr)
+        self.assertIn("start-limit-hit", result.stderr)
+        self.assertIn("reset-failed docker.service", result.stderr)
 
     def test_invalid_wait_budget_is_rejected(self):
         result = run_setup(nvidia_smi=None, wait_seconds="soon")

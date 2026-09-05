@@ -124,8 +124,10 @@ curl -v http://127.0.0.1:8889/api
 - Notebook 02 creates a profile-namespaced 100-row local BF16 baseline. Run it
   once with Nano before Notebook 03, or set `MODEL_PROFILE_NAME` to
   `lightning35_advanced` before Notebook 04.
-- Notebook 03 is the one-GPU Nano workshop: 2,048 direct rows, at most 32 packed
-  steps, CPU merge, local evaluation, and a paired accuracy interval.
+- Notebook 03 is the one-GPU Nano workshop. `WORKSHOP_MODE = True` is the
+  default: 1,024 direct rows and at most 16 packed steps. Set it to `False` for
+  the extended 2,048-row, 32-step schedule. The modes use separate data,
+  checkpoint, merged-model, and report paths.
 - Notebook 04 is the two-GPU Lightning advanced path: 4,096 direct/reasoning
   rows and at most 64 steps. It is a multi-hour A100 exercise.
 - Notebook 05 is design-only and never launches full SFT.

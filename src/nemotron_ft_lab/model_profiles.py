@@ -25,6 +25,8 @@ class ModelProfile:
     include_reasoning: bool
     default_train_samples: int
     default_max_steps: int
+    extended_train_samples: int
+    extended_max_steps: int
     default_global_batch_size: int
     peft_world_sizes: tuple[int, ...]
     min_inference_vram_gib: float
@@ -50,8 +52,10 @@ NANO9B_WORKSHOP = ModelProfile(
     system_prompt="/no_think",
     enable_thinking=False,
     include_reasoning=False,
-    default_train_samples=2048,
-    default_max_steps=32,
+    default_train_samples=1024,
+    default_max_steps=16,
+    extended_train_samples=2048,
+    extended_max_steps=32,
     default_global_batch_size=32,
     peft_world_sizes=(1,),
     min_inference_vram_gib=20.0,
@@ -81,6 +85,8 @@ LIGHTNING35_ADVANCED = ModelProfile(
     include_reasoning=True,
     default_train_samples=4096,
     default_max_steps=64,
+    extended_train_samples=4096,
+    extended_max_steps=64,
     default_global_batch_size=32,
     peft_world_sizes=(1, 2, 4, 8),
     min_inference_vram_gib=75.0,

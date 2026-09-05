@@ -66,6 +66,23 @@ def lora_notebook(*, profile_name: str, title: str, intro: str, default_gpus: in
                 from nemotron_ft_lab.model_profiles import get_model_profile
 
                 PROFILE = get_model_profile('{profile_name}')
+                # Notebook 03 defaults to the bounded workshop schedule. Set this to False
+                # for the longer Nano schedule; Notebook 04 remains the advanced path.
+                WORKSHOP_MODE = {profile_name == "nano9b_workshop"}
+                if PROFILE.name == 'nano9b_workshop':
+                    if WORKSHOP_MODE:
+                        TRAIN_SAMPLES = PROFILE.default_train_samples
+                        MAX_TRAIN_STEPS = PROFILE.default_max_steps
+                        RUN_VARIANT = 'workshop'
+                    else:
+                        TRAIN_SAMPLES = PROFILE.extended_train_samples
+                        MAX_TRAIN_STEPS = PROFILE.extended_max_steps
+                        RUN_VARIANT = 'extended'
+                else:
+                    TRAIN_SAMPLES = PROFILE.extended_train_samples
+                    MAX_TRAIN_STEPS = PROFILE.extended_max_steps
+                    RUN_VARIANT = 'advanced'
+
                 ARTIFACTS_DIR = Path(os.environ.get('NEMOTRON_ARTIFACTS_DIR', ROOT / 'artifacts')).expanduser().resolve()
                 EVAL_DATA_DIR = ARTIFACTS_DIR / 'data/bird-text2sql'
                 TRAIN_DATA_DIR = EVAL_DATA_DIR / 'profiles' / PROFILE.name
@@ -77,12 +94,19 @@ def lora_notebook(*, profile_name: str, title: str, intro: str, default_gpus: in
                 MEGATRON_BASE = CHECKPOINT_ROOT / PROFILE.megatron_checkpoint_name
                 LORA_ROOT = CHECKPOINT_ROOT / PROFILE.lora_checkpoint_name
                 MERGED_MODEL = CHECKPOINT_ROOT / PROFILE.merged_checkpoint_name
+                if PROFILE.name == 'nano9b_workshop':
+                    TRAIN_DATA_DIR = TRAIN_DATA_DIR / RUN_VARIANT
+                    PEFT_REPORT_PATH = EVALUATION_DIR / f'peft_{{RUN_VARIANT}}_text2sql.json'
+                    LORA_ROOT = CHECKPOINT_ROOT / f'{{PROFILE.lora_checkpoint_name}}-{{RUN_VARIANT}}'
+                    MERGED_MODEL = CHECKPOINT_ROOT / f'{{PROFILE.merged_checkpoint_name}}-{{RUN_VARIANT}}'
 
                 RUN_TRAINING = True
                 RESUME_IF_AVAILABLE = True
                 RUN_MERGE = True
                 RUN_EVALUATION = True
                 print(json.dumps(PROFILE.as_dict(), indent=2))
+                print('Workshop mode:', WORKSHOP_MODE)
+                print(f'Training plan: {{TRAIN_SAMPLES}} rows, at most {{MAX_TRAIN_STEPS}} steps')
                 print('Python:', sys.executable)
                 print('Artifacts:', ARTIFACTS_DIR)
                 """),
@@ -105,7 +129,7 @@ def lora_notebook(*, profile_name: str, title: str, intro: str, default_gpus: in
                     sys.executable, 'scripts/prepare_text2sql.py',
                     '--model-profile', PROFILE.name,
                     '--output-dir', str(TRAIN_DATA_DIR), '--training-only',
-                    '--max-train-samples', str(PROFILE.default_train_samples),
+                    '--max-train-samples', str(TRAIN_SAMPLES),
                     '--max-sequence-length', '2048',
                 ], check=True)
 
@@ -172,7 +196,7 @@ def lora_notebook(*, profile_name: str, title: str, intro: str, default_gpus: in
                     '--data-dir', str(TRAIN_DATA_DIR), '--output-dir', str(LORA_ROOT),
                     '--sequence-length', '2048',
                     '--global-batch-size', str(PROFILE.default_global_batch_size),
-                    '--max-steps', str(PROFILE.default_max_steps),
+                    '--max-steps', str(MAX_TRAIN_STEPS),
                     '--learning-rate', '1e-4', '--lora-rank', '32',
                 ]
                 marker = LORA_ROOT / 'latest_checkpointed_iteration.txt'
@@ -223,7 +247,7 @@ def lora_notebook(*, profile_name: str, title: str, intro: str, default_gpus: in
                     '--model-profile', PROFILE.name,
                     '--model', str(MERGED_MODEL), '--revision', '',
                     '--data-dir', str(EVAL_DATA_DIR), '--output', str(PEFT_REPORT_PATH),
-                    '--run-type', f'lora-peft-text2sql-{PROFILE.name}',
+                    '--run-type', f'lora-peft-text2sql-{PROFILE.name}-{RUN_VARIANT}',
                     '--tensor-parallel-size', str(INFERENCE_GPUS),
                 ]
                 if RUN_EVALUATION:
@@ -239,6 +263,9 @@ def lora_notebook(*, profile_name: str, title: str, intro: str, default_gpus: in
                 comparison = paired_execution_comparison(baseline, tuned)
                 comparison.update({
                     'model_profile': PROFILE.name,
+                    'run_variant': RUN_VARIANT,
+                    'training_examples': train_manifest['training_examples'],
+                    'maximum_training_steps': MAX_TRAIN_STEPS,
                     'baseline_execution_accuracy': baseline['execution_accuracy'],
                     'peft_execution_accuracy': tuned['execution_accuracy'],
                     'baseline_sql_valid_rate': baseline['sql_valid_rate'],
@@ -282,7 +309,7 @@ def lora_notebook(*, profile_name: str, title: str, intro: str, default_gpus: in
                     })
                     cloud_results[path.name] = result
                     print(path.name, json.dumps(result, indent=2))
-                target_path = EVALUATION_DIR / 'peft_vs_cloud_text2sql.json'
+                target_path = EVALUATION_DIR / f'peft_{RUN_VARIANT}_vs_cloud_text2sql.json'
                 target_path.write_text(json.dumps(cloud_results, indent=2) + '\\n')
                 print('Saved:', target_path)
                 """),
@@ -564,11 +591,12 @@ NOTEBOOKS = {
         profile_name="nano9b_workshop",
         title="03 — Nano 9B v2 one-GPU Text2SQL LoRA workshop",
         intro=(
-            "This is the default practical path: 2,048 direct-SQL training rows, 2,048-token "
-            "packing, rank 32, GBS 32, and at most 32 steps on one GPU. It targets a warm-cache "
-            "end-to-end workshop run within about an hour, but that target remains unverified "
-            "until the exact Brev SKU is rehearsed. The pinned recipe supports one H100; the "
-            "repository conservatively recommends an 80 GB A100/H100 and treats 48 GB as experimental."
+            "This is the default practical path. `WORKSHOP_MODE = True` uses 1,024 direct-SQL "
+            "training rows, 2,048-token packing, rank 32, GBS 32, and at most 16 steps on one "
+            "GPU. Set it to `False` for the longer 2,048-row, 32-step schedule. Each mode has "
+            "separate data, checkpoint, merged-model, and report paths. The bounded mode targets "
+            "a warm-cache end-to-end workshop run within about an hour, but that target remains "
+            "unverified until the exact Brev SKU is rehearsed."
         ),
         default_gpus=1,
     ),

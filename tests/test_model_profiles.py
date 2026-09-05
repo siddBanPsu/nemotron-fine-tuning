@@ -23,6 +23,10 @@ class ModelProfileTests(unittest.TestCase):
         self.assertEqual(profile.mamba_ssm_cache_dtype, "float32")
         self.assertEqual(profile.revision, "6533e8de2c68e4536bf7c411d7a3ce5734111476")
         self.assertFalse(profile.include_reasoning)
+        self.assertEqual(profile.default_train_samples, 1024)
+        self.assertEqual(profile.default_max_steps, 16)
+        self.assertEqual(profile.extended_train_samples, 2048)
+        self.assertEqual(profile.extended_max_steps, 32)
 
     def test_bridge_pin_is_a_full_commit(self):
         self.assertEqual(len(MEGATRON_BRIDGE_REVISION), 40)

@@ -29,9 +29,11 @@ hardware_profiles:
     model_profile: nano9b_workshop
     notebooks: [01, 02, 03, 05-design]
     status: >-
-      Uses 2,048 direct-SQL rows and at most 32 packed steps. The intended
-      warm-cache duration is under one hour, but this is an acceptance target,
-      not a measured runtime guarantee, until rehearsed on the chosen SKU.
+      WORKSHOP_MODE defaults to true and uses 1,024 direct-SQL rows with at
+      most 16 packed steps. Setting it false selects a separately namespaced
+      extended run with 2,048 rows and at most 32 steps. The intended warm-cache
+      duration is under one hour, but this is an acceptance target, not a
+      measured runtime guarantee, until rehearsed on the chosen SKU.
   - label: Conditional 80 GB data-center path
     gpu: 1x NVIDIA A100 80 GB or 1x NVIDIA H100 80 GB
     host_memory_gb: 128

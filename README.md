@@ -10,7 +10,7 @@ The repository has two deliberately separate local paths:
 
 | Path | Model | Hardware | Training scope | Runtime status |
 | --- | --- | --- | --- | --- |
-| Recommended workshop | `nvidia/NVIDIA-Nemotron-Nano-9B-v2` | 1×RTX PRO 6000 Blackwell Server Edition 96 GB; or A100/H100 80 GB only with driver 580.65.06+ | 2,048 direct rows, 2K packing, GBS 32, rank 32, ≤32 steps | warm-cache Notebooks 02–03 target ≤60 min; target-SKU rehearsal still required |
+| Recommended workshop | `nvidia/NVIDIA-Nemotron-Nano-9B-v2` | 1×RTX PRO 6000 Blackwell Server Edition 96 GB; or A100/H100 80 GB only with driver 580.65.06+ | default: 1,024 direct rows, 2K packing, GBS 32, rank 32, ≤16 steps; extended: 2,048 rows/≤32 steps | warm-cache Notebooks 02–03 target ≤60 min; target-SKU rehearsal still required |
 | Advanced exercise | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 2×A100/H100 80 GB | 4,096 direct/reasoning rows, 2K packing, GBS 32, rank 32, ≤64 steps | measured 6 h 49 min on 2×A100 for train, merge, and evaluation |
 | Full SFT handoff | Lightning 30B total parameters | 16×H100 80 GB reference gate | all parameters | design-only Notebook 05; never launches on Brev |
 
@@ -90,6 +90,11 @@ are left untouched but are not reused. Run Notebook 02 again for the selected
 profile, then let the new LoRA notebook create its profile-specific checkpoint.
 This deliberate break prevents an old Lightning artifact from being mistaken
 for a Nano result.
+
+Notebook 03 also separates its two schedules. Leave `WORKSHOP_MODE = True` for
+1,024 rows and at most 16 steps. Set it to `False` for 2,048 rows and at most
+32 steps. The modes use distinct training-data, adapter, merged-model, and
+evaluation paths, so changing the switch cannot resume an incompatible run.
 
 ## What “within an hour” means
 
@@ -191,10 +196,12 @@ Training uses BIRD train mirrors from NVIDIA's Lightning Text2SQL cookbook:
 - `meowterspace45/bird-sql-train-with-reasoning`, pinned at
   `9e351e0057819f1b0917debb83c8e12f321157a4` for Lightning only.
 
-Nano shuffles and renders up to 2,048 direct examples with its instruct chat
-template and `/no_think`. Lightning shuffles both sources, filters beyond 2,048
-tokens, and keeps 4,096 rows. Each profile writes its own JSONL and manifest
-under `artifacts/data/bird-text2sql/profiles/<profile>/`. The manifest records
+Nano workshop mode shuffles and renders up to 1,024 direct examples with its
+instruct chat template and `/no_think`; extended mode uses up to 2,048.
+Lightning shuffles both sources, filters beyond 2,048 tokens, and keeps 4,096
+rows. Each profile writes its own JSONL and manifest under
+`artifacts/data/bird-text2sql/profiles/<profile>/`; Nano adds `workshop` or
+`extended`. The manifest records
 model revision, system prompt, reasoning mode, dataset revisions, row/token
 counts, source distribution, and SHA-256.
 

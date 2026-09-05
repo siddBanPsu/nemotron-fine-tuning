@@ -190,7 +190,11 @@ for DRIVER_VERSION in "${DRIVER_VERSIONS[@]}"; do
   if ! driver_version_at_least "${DRIVER_VERSION}" "${MINIMUM_DRIVER_VERSION}"; then
     echo "NVIDIA driver ${DRIVER_VERSION} is too old for ${IMAGE}." >&2
     echo "CUDA 13.x minor-version compatibility requires driver ${MINIMUM_DRIVER_VERSION} or newer." >&2
+    echo "This is a VM-image compatibility failure, not an A100 memory or compute-capability failure." >&2
+    echo "The lifecycle script cannot replace the kernel driver: activating a new driver requires a VM reboot, which would fail this Brev on-create run." >&2
     echo "Create a fresh Brev instance whose base image reports driver ${MINIMUM_DRIVER_VERSION}+; the setup stops before the large container pull." >&2
+    echo "A Brev RTX PRO 6000 Blackwell Server Edition instance with driver 595.91.07 has passed this repository's container/CUDA startup gate." >&2
+    echo "An A100 instance is suitable only when its selected provider/base image also supplies driver ${MINIMUM_DRIVER_VERSION}+." >&2
     echo "Do not substitute an older NeMo image: it is not the verified dependency stack for these training recipes." >&2
     exit 1
   fi

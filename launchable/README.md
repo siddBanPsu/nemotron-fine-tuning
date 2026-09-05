@@ -8,13 +8,20 @@ five-notebook executable Text2SQL lab. The default is the smaller one-GPU Nano
 
 | Profile | Recommended Brev hardware | Notebook | Honest duration status |
 | --- | --- | --- | --- |
-| `nano9b_workshop` | 1×A100 80 GB or 1×H100 80 GB, 128 GB RAM, 200 GB disk | 03 | warm-cache under-one-hour target; target-SKU rehearsal still required |
+| `nano9b_workshop` | 1×RTX PRO 6000 Blackwell Server Edition 96 GB; or 1×A100/H100 80 GB with driver 580.65.06+, 128 GB RAM, 200 GB disk | 03 | warm-cache under-one-hour target; target-SKU rehearsal still required |
 | `lightning35_advanced` | 2×A100/H100 80 GB, 192 GB RAM, 300 GB disk | 04 | measured 6 h 49 min warm-cache on 2×A100 for train, merge, and evaluation |
 
 A 48 GB L40S passes the conservative Nano software gate but remains
 experimental because the pinned Megatron-Bridge recipe is specifically a
 one-H100 BF16 recipe. Do not schedule a workshop on 48 GB without a full
 rehearsal.
+
+Choose the VM image by driver as well as GPU. A Brev RTX PRO 6000 Blackwell
+Server Edition instance with driver 595.91.07 completed this repository's NeMo
+26.08 container and CUDA smoke test using forward compatibility. This is setup
+evidence only, not a measured Nano training run. An observed Brev A100 80 GB
+image with driver 565.57.01 failed correctly: its VRAM and compute capability
+are sufficient, but that VM image cannot initialize the pinned CUDA 13 stack.
 
 Nano v2 is intentionally compatibility-frozen: the pinned Megatron-Bridge
 commit contains its one-GPU recipe, while current upstream documentation marks
@@ -139,6 +146,11 @@ Never put secrets in the manifest, repository, TOML, setup script, notebook
 output, or evaluation artifacts.
 
 The host NVIDIA driver cannot be upgraded from inside the lifecycle container.
-If setup rejects an older driver, choose a newer Brev base image or instance.
+Although an administrator can replace a driver on some raw VMs, activating its
+kernel module requires a reboot; doing that from Brev's on-create service marks
+the build failed and can create a retry loop. If setup rejects an older driver,
+choose a provider/base image that already reports 580.65.06+ in `nvidia-smi`.
+Do not lower `NEMOTRON_MINIMUM_DRIVER_VERSION`: the subsequent CUDA smoke test
+will still fail on an incompatible driver.
 Docker registry access, Docker daemon access, NVIDIA container runtime support,
 and in-container CUDA initialization are separate checks.

@@ -11,17 +11,19 @@ source:
   repository_url: https://github.com/siddBanPsu/nemotron-fine-tuning
 
 default_hardware:
-  gpu: 1x NVIDIA H100 80 GB
+  gpu: 1x NVIDIA RTX PRO 6000 Blackwell Server Edition 96 GB
   host_memory_gb: 128
   disk_gb: 200
   reason: >-
-    The default nano9b_workshop profile uses Megatron-Bridge's pinned one-GPU
-    H100 BF16 PEFT recipe. The lab conservatively recommends an 80 GB A100/H100
-    until the exact Brev SKU has a complete measured rehearsal.
+    This GPU/provider path completed the NeMo 26.08 container and CUDA smoke
+    test with host driver 595.91.07 using forward compatibility. That proves
+    startup, not the under-one-hour training target. The default
+    nano9b_workshop profile still uses Megatron-Bridge's pinned one-H100 BF16
+    PEFT recipe and requires a complete rehearsal on the selected SKU.
 
 hardware_profiles:
   - label: Recommended one-GPU workshop
-    gpu: 1x NVIDIA A100 80 GB or 1x NVIDIA H100 80 GB
+    gpu: 1x NVIDIA RTX PRO 6000 Blackwell Server Edition 96 GB
     host_memory_gb: 128
     disk_gb: 200
     model_profile: nano9b_workshop
@@ -30,6 +32,16 @@ hardware_profiles:
       Uses 2,048 direct-SQL rows and at most 32 packed steps. The intended
       warm-cache duration is under one hour, but this is an acceptance target,
       not a measured runtime guarantee, until rehearsed on the chosen SKU.
+  - label: Conditional 80 GB data-center path
+    gpu: 1x NVIDIA A100 80 GB or 1x NVIDIA H100 80 GB
+    host_memory_gb: 128
+    disk_gb: 200
+    model_profile: nano9b_workshop
+    notebooks: [01, 02, 03, 05-design]
+    status: >-
+      Use only when the provider/base image supplies NVIDIA driver 580.65.06
+      or newer. GPU name and VRAM do not determine the driver: an observed
+      Brev A100 80 GB image with driver 565.57.01 cannot start NeMo 26.08.
   - label: Experimental 48 GB Nano path
     gpu: 1x NVIDIA L40S 48 GB
     host_memory_gb: 128
@@ -68,6 +80,10 @@ software:
   custom_jupyter: true
   jupyter_port: 8889
   jupyter_default_url: /lab/tree/notebooks/01_cloud_api_baseline.ipynb
+  compatibility_note: >-
+    Select the VM image by driver as well as GPU. CUDA 13.x requires driver
+    580.65.06+ for minor-version compatibility; the lifecycle script cannot
+    replace a kernel driver because activation requires a reboot.
 
 network:
   secure_links:

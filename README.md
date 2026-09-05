@@ -10,7 +10,7 @@ The repository has two deliberately separate local paths:
 
 | Path | Model | Hardware | Training scope | Runtime status |
 | --- | --- | --- | --- | --- |
-| Recommended workshop | `nvidia/NVIDIA-Nemotron-Nano-9B-v2` | 1×A100/H100 80 GB | 2,048 direct rows, 2K packing, GBS 32, rank 32, ≤32 steps | warm-cache Notebooks 02–03 target ≤60 min; target-SKU rehearsal still required |
+| Recommended workshop | `nvidia/NVIDIA-Nemotron-Nano-9B-v2` | 1×RTX PRO 6000 Blackwell Server Edition 96 GB; or A100/H100 80 GB only with driver 580.65.06+ | 2,048 direct rows, 2K packing, GBS 32, rank 32, ≤32 steps | warm-cache Notebooks 02–03 target ≤60 min; target-SKU rehearsal still required |
 | Advanced exercise | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 2×A100/H100 80 GB | 4,096 direct/reasoning rows, 2K packing, GBS 32, rank 32, ≤64 steps | measured 6 h 49 min on 2×A100 for train, merge, and evaluation |
 | Full SFT handoff | Lightning 30B total parameters | 16×H100 80 GB reference gate | all parameters | design-only Notebook 05; never launches on Brev |
 
@@ -41,8 +41,16 @@ profile on the same 100 example IDs.
 
 ## Workshop quick start
 
-Use a Brev VM with one A100 80 GB or H100 80 GB, at least 128 GB host RAM, and
-at least 200 GB disk. Prefetch before participants arrive:
+Use a Brev VM with at least 80 GB VRAM, 128 GB host RAM, 200 GB disk, and host
+driver 580.65.06 or newer. The least-surprising current choice is one RTX PRO
+6000 Blackwell Server Edition 96 GB: an observed Brev instance with driver
+595.91.07 completed this repository's NeMo 26.08 container and CUDA startup
+gate. That result does not yet prove the Nano training runtime or accuracy.
+
+Do not select by GPU name alone. An observed Brev A100 80 GB image shipped
+driver 565.57.01 and was correctly rejected before the container download.
+Another A100/H100 provider image is valid if `nvidia-smi` reports driver
+580.65.06+. Prefetch before participants arrive:
 
 ```bash
 export NEMOTRON_MODEL_PROFILE=nano9b_workshop
@@ -313,6 +321,14 @@ recovery. The launchable uses VM mode, host port 8889, no public TCP ports, and
 `nvcr.io/nvidia/nemo:26.08`. It requires host driver 580.65.06+ for CUDA 13.x
 minor compatibility; 610.43.02+ is native. A real CUDA arithmetic smoke test
 runs inside the container before Jupyter starts.
+
+The driver is part of the selected VM image, not the GPU model. The lifecycle
+script intentionally will not install or replace it: loading a new NVIDIA
+kernel driver requires a reboot, which would terminate Brev's on-create job.
+An observed RTX PRO 6000/driver 595.91.07 deployment passed setup using CUDA
+forward compatibility; an observed A100/driver 565.57.01 deployment cannot run
+this CUDA 13 stack. Choose a different provider/base image instead of lowering
+the gate.
 
 The host `.venv` is API-only. Notebooks 02–05 must use the container Python.
 `ModuleNotFoundError: torch` in a GPU notebook means the wrong kernel, not that

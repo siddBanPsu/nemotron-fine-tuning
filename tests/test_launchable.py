@@ -58,6 +58,7 @@ class LaunchableTests(unittest.TestCase):
 
     def test_driver_gate_precedes_the_large_container_pull(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")
         driver_gate = setup.index("driver_version_at_least")
         driver_check = setup.index('driver_version_at_least "${DRIVER_VERSION}"')
         container_pull = setup.index('retry docker pull "${IMAGE}"')
@@ -65,6 +66,10 @@ class LaunchableTests(unittest.TestCase):
         self.assertLess(driver_check, container_pull)
         self.assertIn("NEMOTRON_MINIMUM_DRIVER_VERSION:-580.65.06", setup)
         self.assertIn('NATIVE_DRIVER_VERSION="610.43.02"', setup)
+        self.assertIn("VM-image compatibility failure", setup)
+        self.assertIn("driver 595.91.07", setup)
+        self.assertIn("driver 565.57.01", manifest)
+        self.assertIn("RTX PRO 6000 Blackwell Server Edition 96 GB", manifest)
 
     def test_cuda_compatibility_is_proven_before_jupyter_starts(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")

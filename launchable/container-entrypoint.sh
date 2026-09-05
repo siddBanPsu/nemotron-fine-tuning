@@ -104,5 +104,5 @@ exec jupyter lab \
   --ServerApp.root_dir=/workspace/launchable \
   --ServerApp.default_url=/lab/tree/notebooks/01_cloud_api_baseline.ipynb \
   --ServerApp.allow_origin='*' \
-  --ServerApp.token='' \
+  --ServerApp.token="${NEMOTRON_JUPYTER_TOKEN:-}" \
   --ServerApp.password=''

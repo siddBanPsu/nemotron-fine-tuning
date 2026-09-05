@@ -8,6 +8,8 @@ NATIVE_DRIVER_VERSION="610.43.02"
 JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
 DRIVER_WAIT_SECONDS="${NEMOTRON_DRIVER_WAIT_SECONDS:-300}"
+BIND_ADDRESS="${NEMOTRON_JUPYTER_BIND_ADDRESS:-auto}"
+JUPYTER_TOKEN="${NEMOTRON_JUPYTER_TOKEN:-}"
 MODEL_PROFILE="${NEMOTRON_MODEL_PROFILE:-nano9b_workshop}"
 REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotron-fine-tuning.git}"
 REPOSITORY_REF="${NEMOTRON_REPOSITORY_REF:-main}"
@@ -180,6 +182,28 @@ resolve_repository() {
     exit 1
   fi
   echo "Using repository commit $(git -C "${REPOSITORY_DIR}" rev-parse HEAD)."
+}
+
+# Brev's Secure Link proxy reaches the instance over its tailnet address rather
+# than loopback, so a loopback-only publish is refused and the proxy returns 503.
+detect_secure_link_address() {
+  local address=""
+  if command -v tailscale >/dev/null 2>&1; then
+    address="$(tailscale ip -4 2>/dev/null | head -n 1)"
+  fi
+  if [ -z "${address}" ] && command -v ip >/dev/null 2>&1; then
+    address="$(ip -4 -o addr show scope global 2>/dev/null \
+      | awk '{print $4}' | cut -d/ -f1 | grep '^100\.' | head -n 1)"
+  fi
+  printf '%s' "${address}"
+}
+
+generate_jupyter_token() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24
+    return
+  fi
+  python3 -c 'import secrets; print(secrets.token_hex(24))'
 }
 
 port_is_free() {
@@ -372,6 +396,31 @@ else
   fi
 fi
 
+if [ "${BIND_ADDRESS}" = "auto" ]; then
+  BIND_ADDRESS="$(detect_secure_link_address)"
+  if [ -n "${BIND_ADDRESS}" ]; then
+    echo "Detected instance address ${BIND_ADDRESS}; publishing Jupyter there so an off-loopback proxy such as a Brev Secure Link can reach it."
+  else
+    echo "No tailnet address was detected; publishing on loopback only." >&2
+    echo "A Brev Secure Link will return 503 until NEMOTRON_JUPYTER_BIND_ADDRESS names a reachable address." >&2
+  fi
+fi
+case "${BIND_ADDRESS}" in
+  127.0.0.1|localhost|loopback) BIND_ADDRESS="" ;;
+esac
+
+# A server reachable beyond loopback must authenticate: a tokenless Jupyter
+# hands arbitrary code execution to anything that can open the port.
+if [ -n "${BIND_ADDRESS}" ] && [ -z "${JUPYTER_TOKEN}" ]; then
+  JUPYTER_TOKEN="$(generate_jupyter_token)"
+  echo "Generated a Jupyter token because the server is reachable beyond loopback."
+fi
+
+PUBLISH_ARGS=(-p "127.0.0.1:${JUPYTER_PORT}:8888")
+if [ -n "${BIND_ADDRESS}" ]; then
+  PUBLISH_ARGS+=(-p "${BIND_ADDRESS}:${JUPYTER_PORT}:8888")
+fi
+
 echo "[6/7] Starting the isolated Jupyter lab container"
 docker run --detach \
   --name "${CONTAINER_NAME}" \
@@ -380,7 +429,8 @@ docker run --detach \
   --shm-size=64g \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
-  -p "127.0.0.1:${JUPYTER_PORT}:8888" \
+  "${PUBLISH_ARGS[@]}" \
+  -e "NEMOTRON_JUPYTER_TOKEN=${JUPYTER_TOKEN}" \
   -e "NEMOTRON_PREFETCH_MODEL=${PREFETCH_MODEL}" \
   -e "NEMOTRON_MODEL_PROFILE=${MODEL_PROFILE}" \
   -e "NEMOTRON_ARTIFACTS_DIR=/workspace/launchable/artifacts" \
@@ -415,8 +465,22 @@ docker run --detach \
 
 echo "[7/7] Waiting for Jupyter readiness"
 for _ in $(seq 1 1080); do
-  if curl --fail --silent "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
+  READINESS_HEADER=()
+  if [ -n "${JUPYTER_TOKEN}" ]; then
+    READINESS_HEADER=(--header "Authorization: token ${JUPYTER_TOKEN}")
+  fi
+  if curl --fail --silent \
+    ${READINESS_HEADER[@]+"${READINESS_HEADER[@]}"} \
+    "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
     echo "Ready: Jupyter is listening on VM loopback port ${JUPYTER_PORT}."
+    if [ -n "${BIND_ADDRESS}" ]; then
+      echo "Also published on ${BIND_ADDRESS}:${JUPYTER_PORT} for the Secure Link proxy."
+    fi
+    if [ -n "${JUPYTER_TOKEN}" ]; then
+      echo "Jupyter token: ${JUPYTER_TOKEN}"
+      echo "Paste it into the Jupyter login page, or append '?token=${JUPYTER_TOKEN}' to the URL."
+      echo "The token is not written to disk; rerun setup to issue a new one."
+    fi
     echo "Brev: open the authenticated Secure Link configured for port ${JUPYTER_PORT}."
     echo "Standalone VM: from your workstation run:"
     echo "  ssh -N -L ${JUPYTER_PORT}:127.0.0.1:${JUPYTER_PORT} USER@VM_HOST"

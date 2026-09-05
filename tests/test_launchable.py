@@ -136,6 +136,23 @@ class LaunchableTests(unittest.TestCase):
         self.assertNotIn("docker pull", probe)
         self.assertNotIn("pip install", probe)
 
+    def test_secure_link_publish_requires_a_token_beyond_loopback(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        entrypoint = (ROOT / "launchable/container-entrypoint.sh").read_text(encoding="utf-8")
+        # Loopback is always published, so SSH tunnels keep working.
+        self.assertIn('PUBLISH_ARGS=(-p "127.0.0.1:${JUPYTER_PORT}:8888")', setup)
+        self.assertIn('PUBLISH_ARGS+=(-p "${BIND_ADDRESS}:${JUPYTER_PORT}:8888")', setup)
+        # A reachable server must authenticate; there is no tokenless escape.
+        token_guard = setup.index('if [ -n "${BIND_ADDRESS}" ] && [ -z "${JUPYTER_TOKEN}" ]')
+        publish = setup.index("PUBLISH_ARGS=(-p")
+        self.assertLess(token_guard, publish)
+        self.assertIn("JUPYTER_TOKEN=\"$(generate_jupyter_token)\"", setup)
+        self.assertNotIn("ALLOW_TOKENLESS", setup)
+        self.assertIn('--ServerApp.token="${NEMOTRON_JUPYTER_TOKEN:-}"', entrypoint)
+        self.assertNotIn("--ServerApp.token='' ", entrypoint)
+        # Readiness must authenticate too, or it would spin until timeout.
+        self.assertIn('Authorization: token ${JUPYTER_TOKEN}', setup)
+
     def test_missing_docker_fails_with_standalone_vm_guidance(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
         docker_command_check = setup.index("command -v docker")

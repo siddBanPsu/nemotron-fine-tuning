@@ -129,6 +129,36 @@ docker logs --tail 200 nemotron-35-ft-lab
 curl -v http://127.0.0.1:8889/api
 ```
 
+## The Secure Link returns 503
+
+Pomerium reporting `upstream_reset_before_response_started{...Connection_refused}`
+means the proxy is healthy and reached the instance, but nothing accepted the
+connection where it dialled. Brev's proxy reaches instances over their **tailnet
+address** (a `100.x.y.z` Tailscale IP), not loopback, so publishing Jupyter only
+on `127.0.0.1` is refused no matter which port number is used. Confirm with:
+
+```bash
+ss -ltnp | grep -E '8888|8889'
+ip -4 -o addr show scope global | awk '{print $4}'
+```
+
+Setup detects that address automatically and publishes the Jupyter port on both
+loopback and the tailnet address. Because the server is then reachable beyond
+loopback, setup generates a random Jupyter token per run and prints it at the
+end; paste it into the login page or append `?token=...` to the URL. Override
+the address with `NEMOTRON_JUPYTER_BIND_ADDRESS`, or supply your own token with
+`NEMOTRON_JUPYTER_TOKEN`.
+
+Do not remove the token to get a one-click link. A tokenless Jupyter on a
+routable address gives anything that can open the port arbitrary code execution
+as root inside the container, including other machines on the same tailnet.
+Access without a token remains available through a tunnel, which keeps the
+server loopback-only end to end:
+
+```bash
+brev port-forward <instance-name> -p 8889:8889
+```
+
 ## Notebook boundaries
 
 - Notebook 01 is CPU/API-only and makes 50 hosted requests by default.

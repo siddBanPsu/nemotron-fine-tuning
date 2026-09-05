@@ -95,6 +95,12 @@ software:
   driver_recovery_script_file: launchable/upgrade_driver.sh
 
 network:
+  jupyter_authentication: >-
+    Jupyter is tokenless only while it is loopback-only. When setup publishes it
+    on the instance's tailnet address for the Secure Link, it generates a random
+    token per run and prints it; participants paste it once. Never publish this
+    container tokenless on a routable address: it is root code execution for
+    anything that can open the port.
   secure_links:
     - name: jupyter
       port: 8889
@@ -123,6 +129,14 @@ launch_parameters:
       Seconds the on-create script waits for nvidia-smi to answer before
       failing. A freshly created VM often finishes loading its GPU driver after
       the lifecycle service starts; the gate retries instead of crashing.
+  - name: NEMOTRON_JUPYTER_BIND_ADDRESS
+    required: false
+    default: auto
+    description: >-
+      Address the Jupyter port is published on in addition to loopback. Auto
+      detects the instance's tailnet address, which is what the Brev Secure
+      Link proxy dials; a loopback-only publish makes that proxy return 503.
+      Publishing beyond loopback always issues a Jupyter token.
   - name: NEMOTRON_JUPYTER_PORT
     required: false
     default: "8889"

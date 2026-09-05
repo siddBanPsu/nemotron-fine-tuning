@@ -85,7 +85,14 @@ software:
   compatibility_note: >-
     Select the VM image by driver as well as GPU. CUDA 13.x requires driver
     580.65.06+ for minor-version compatibility; the lifecycle script cannot
-    replace a kernel driver because activation requires a reboot.
+    replace a kernel driver because activation requires a reboot. NVIDIA's
+    cuda-compat forward-compatibility package cannot go below that floor
+    either, and covers only data-center GPUs and select NGC-Server-Ready RTX
+    SKUs. Screen a candidate instance with launchable/check_driver.sh before
+    provisioning; recover a rejected one over SSH with
+    launchable/upgrade_driver.sh followed by a reboot and a setup rerun.
+  preflight_script_file: launchable/check_driver.sh
+  driver_recovery_script_file: launchable/upgrade_driver.sh
 
 network:
   secure_links:

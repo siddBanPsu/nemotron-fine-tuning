@@ -105,6 +105,37 @@ class LaunchableTests(unittest.TestCase):
         self.assertIn("torch.cuda.is_available()", entrypoint)
         self.assertNotIn("\ntorch", requirements)
 
+    def test_forward_compatibility_is_retried_before_the_instance_is_rejected(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        smoke_definition = setup.index("run_cuda_smoke_test() {")
+        first_attempt = setup.index("if run_cuda_smoke_test; then")
+        compat_retry = setup.index('FORWARD_COMPAT_ARGS=(-e "LD_LIBRARY_PATH=')
+        jupyter_container = setup.index("docker run --detach")
+        self.assertLess(smoke_definition, first_attempt)
+        self.assertLess(first_attempt, compat_retry)
+        self.assertLess(compat_retry, jupyter_container)
+        self.assertIn("/usr/local/cuda/compat/lib.real", setup)
+        # A passing compat retry must be inherited by the long-lived container.
+        self.assertIn('${FORWARD_COMPAT_ARGS[@]+"${FORWARD_COMPAT_ARGS[@]}"}', setup)
+        # Compat cannot rescue a driver below the floor; the gate stays honest.
+        self.assertIn("still requires a base driver of 580 or newer", setup)
+
+    def test_driver_recovery_tooling_is_documented_and_gated(self):
+        setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        probe = (ROOT / "launchable/check_driver.sh").read_text(encoding="utf-8")
+        upgrade = (ROOT / "launchable/upgrade_driver.sh").read_text(encoding="utf-8")
+        manifest = (ROOT / "launchable/brev-launchable.yaml").read_text(encoding="utf-8")
+        readme = (ROOT / "launchable/README.md").read_text(encoding="utf-8")
+        self.assertIn("launchable/check_driver.sh", setup)
+        self.assertIn("launchable/upgrade_driver.sh", setup)
+        self.assertIn("preflight_script_file: launchable/check_driver.sh", manifest)
+        self.assertIn("bash launchable/check_driver.sh", readme)
+        self.assertIn("NEMOTRON_CONFIRM_DRIVER_UPGRADE", upgrade)
+        self.assertIn("NEMOTRON_MINIMUM_DRIVER_VERSION:-580.65.06", probe)
+        # The probe must not need the repository install or a container pull.
+        self.assertNotIn("docker pull", probe)
+        self.assertNotIn("pip install", probe)
+
     def test_missing_docker_fails_with_standalone_vm_guidance(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
         docker_command_check = setup.index("command -v docker")

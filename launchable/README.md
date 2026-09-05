@@ -28,6 +28,17 @@ commit contains its one-GPU recipe, while current upstream documentation marks
 the model family's Bridge support deprecated. The profile is useful for this
 bounded workshop, not a promise of future recipe maintenance.
 
+## Screen the instance before spending on it
+
+```bash
+bash launchable/check_driver.sh
+```
+
+This standalone probe needs no Python, no repository install, and no image
+pull. It prints every GPU, its driver, and a verdict, then exits 0 (supported),
+1 (driver too old), or 2 (no usable NVIDIA stack). Run it right after SSH, or
+pipe it from the raw file URL, before running setup.
+
 ## Launch parameters
 
 For the recommended workshop:
@@ -151,8 +162,30 @@ The host NVIDIA driver cannot be upgraded from inside the lifecycle container.
 Although an administrator can replace a driver on some raw VMs, activating its
 kernel module requires a reboot; doing that from Brev's on-create service marks
 the build failed and can create a retry loop. If setup rejects an older driver,
-choose a provider/base image that already reports 580.65.06+ in `nvidia-smi`.
+prefer a provider/base image that already reports 580.65.06+ in `nvidia-smi`.
 Do not lower `NEMOTRON_MINIMUM_DRIVER_VERSION`: the subsequent CUDA smoke test
 will still fail on an incompatible driver.
+
+Forward compatibility is not an escape hatch below that floor. A CUDA 13.x
+`cuda-compat` package still requires a base driver of 580 or newer, and it is
+supported only on data-center GPUs and select NGC-Server-Ready RTX SKUs. Within
+the supported band, setup makes it robust: if the NGC image does not activate
+compat itself, setup retries the CUDA smoke test with
+`LD_LIBRARY_PATH=/usr/local/cuda/compat/lib.real:...` and, when that succeeds,
+starts Jupyter with the same loader path.
+
+When recreating the instance is not an option, upgrade it in place over SSH:
+
+```bash
+sudo NEMOTRON_CONFIRM_DRIVER_UPGRADE=1 bash launchable/upgrade_driver.sh
+sudo reboot
+bash launchable/check_driver.sh && bash launchable/setup.sh
+```
+
+`upgrade_driver.sh` installs `cuda-drivers-580` from NVIDIA's repository on
+Ubuntu 22.04/24.04 (x86_64 or aarch64), refuses to run without the explicit
+confirmation variable, and requires a reboot. Override the branch or package
+with `NEMOTRON_DRIVER_BRANCH` or `NEMOTRON_DRIVER_PACKAGE`. It replaces a
+kernel driver, so never run it mid-workshop.
 Docker registry access, Docker daemon access, NVIDIA container runtime support,
 and in-container CUDA initialization are separate checks.

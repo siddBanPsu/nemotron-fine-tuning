@@ -193,6 +193,9 @@ for DRIVER_VERSION in "${DRIVER_VERSIONS[@]}"; do
     echo "This is a VM-image compatibility failure, not an A100 memory or compute-capability failure." >&2
     echo "The lifecycle script cannot replace the kernel driver: activating a new driver requires a VM reboot, which would fail this Brev on-create run." >&2
     echo "Create a fresh Brev instance whose base image reports driver ${MINIMUM_DRIVER_VERSION}+; the setup stops before the large container pull." >&2
+    echo "NVIDIA's CUDA forward-compatibility package cannot close this gap: a CUDA 13.x compat package still requires a base driver of 580 or newer." >&2
+    echo "To upgrade this instance in place instead, run 'sudo bash launchable/upgrade_driver.sh', reboot, then re-run this setup script; it is idempotent." >&2
+    echo "To screen a candidate instance before provisioning the lab, run 'bash launchable/check_driver.sh'." >&2
     echo "A Brev RTX PRO 6000 Blackwell Server Edition instance with driver 595.91.07 has passed this repository's container/CUDA startup gate." >&2
     echo "An A100 instance is suitable only when its selected provider/base image also supplies driver ${MINIMUM_DRIVER_VERSION}+." >&2
     echo "Do not substitute an older NeMo image: it is not the verified dependency stack for these training recipes." >&2
@@ -251,14 +254,7 @@ df -h \
 echo "[4/7] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"
 
-echo "[5/7] Validating the repository mount and CUDA inside the pinned container"
-docker run --rm \
-  --gpus all \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --ulimit stack=67108864 \
-  -v "${REPOSITORY_DIR}:/workspace/launchable:ro" \
-  --interactive "${IMAGE}" python - <<'PY'
+CUDA_SMOKE_TEST_PY="$(cat <<'SMOKE'
 from pathlib import Path
 
 import torch
@@ -278,7 +274,43 @@ print(
     f"CUDA smoke test passed on {torch.cuda.device_count()} GPU(s): "
     f"{torch.cuda.get_device_name(0)}"
 )
-PY
+SMOKE
+)"
+
+# NGC images normally activate the CUDA forward-compatibility libraries by
+# themselves when the host driver is older than the container's CUDA build.
+# That activation is known to be skipped on some hosts, so retry once with the
+# compat loader path made explicit before declaring the instance unusable.
+FORWARD_COMPAT_LIBRARY_PATH="/usr/local/cuda/compat/lib.real:/usr/local/cuda/compat:/usr/local/nvidia/lib64:/usr/local/nvidia/lib"
+FORWARD_COMPAT_ARGS=()
+
+run_cuda_smoke_test() {
+  printf '%s\n' "${CUDA_SMOKE_TEST_PY}" | docker run --rm \
+    --gpus all \
+    --ipc=host \
+    --ulimit memlock=-1 \
+    --ulimit stack=67108864 \
+    -v "${REPOSITORY_DIR}:/workspace/launchable:ro" \
+    "$@" \
+    --interactive "${IMAGE}" python -
+}
+
+echo "[5/7] Validating the repository mount and CUDA inside the pinned container"
+if run_cuda_smoke_test; then
+  echo "CUDA started with the container's default library configuration."
+else
+  echo "Default CUDA initialization failed; retrying with the CUDA forward-compatibility libraries explicit on the loader path." >&2
+  FORWARD_COMPAT_ARGS=(-e "LD_LIBRARY_PATH=${FORWARD_COMPAT_LIBRARY_PATH}")
+  if run_cuda_smoke_test "${FORWARD_COMPAT_ARGS[@]}"; then
+    echo "CUDA started only with explicit forward compatibility; the Jupyter container will inherit that loader path."
+  else
+    FORWARD_COMPAT_ARGS=()
+    echo "CUDA cannot initialize in ${IMAGE} on this host, with or without explicit forward compatibility." >&2
+    echo "Forward compatibility cannot rescue a base driver below ${MINIMUM_DRIVER_VERSION}, and it applies only to data-center GPUs and select NGC-Server-Ready RTX SKUs." >&2
+    echo "Re-run 'bash launchable/check_driver.sh' for the host verdict, then either recreate the instance from a ${MINIMUM_DRIVER_VERSION}+ image or run 'sudo bash launchable/upgrade_driver.sh' and reboot." >&2
+    exit 1
+  fi
+fi
 
 echo "[6/7] Starting the isolated Jupyter lab container"
 docker run --detach \
@@ -317,6 +349,7 @@ docker run --detach \
   -v "${CACHE_DIR}:/workspace/cache" \
   -v "${TEMP_DIR}:/workspace/tmp" \
   -w /workspace/launchable \
+  ${FORWARD_COMPAT_ARGS[@]+"${FORWARD_COMPAT_ARGS[@]}"} \
   "${IMAGE}" \
   bash /workspace/launchable/launchable/container-entrypoint.sh
 

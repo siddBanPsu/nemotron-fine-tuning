@@ -50,7 +50,16 @@ gate. That result does not yet prove the Nano training runtime or accuracy.
 Do not select by GPU name alone. An observed Brev A100 80 GB image shipped
 driver 565.57.01 and was correctly rejected before the container download.
 Another A100/H100 provider image is valid if `nvidia-smi` reports driver
-580.65.06+. Prefetch before participants arrive:
+580.65.06+.
+
+Screen a candidate instance in seconds, before any multi-gigabyte pull:
+
+```bash
+bash launchable/check_driver.sh
+```
+
+It exits non-zero with the specific remedy when the image cannot run the pinned
+container. Prefetch before participants arrive:
 
 ```bash
 export NEMOTRON_MODEL_PROFILE=nano9b_workshop
@@ -334,8 +343,28 @@ script intentionally will not install or replace it: loading a new NVIDIA
 kernel driver requires a reboot, which would terminate Brev's on-create job.
 An observed RTX PRO 6000/driver 595.91.07 deployment passed setup using CUDA
 forward compatibility; an observed A100/driver 565.57.01 deployment cannot run
-this CUDA 13 stack. Choose a different provider/base image instead of lowering
-the gate.
+this CUDA 13 stack.
+
+NVIDIA's CUDA forward-compatibility package does not rescue that older image: a
+CUDA 13.x compat package still requires a base driver of 580 or newer, and it
+applies only to data-center GPUs and select NGC-Server-Ready RTX SKUs. Where
+compat does apply, setup now proves it: if the container's own automatic
+activation is skipped, setup retries the CUDA smoke test with the compat
+libraries explicit on the loader path and, on success, gives the Jupyter
+container the same path.
+
+Three operator responses to a rejected instance, cheapest first:
+
+```bash
+bash launchable/check_driver.sh                    # screen before you spend
+# then either recreate the instance from a 580.65.06+ image, or:
+sudo NEMOTRON_CONFIRM_DRIVER_UPGRADE=1 bash launchable/upgrade_driver.sh
+sudo reboot && bash launchable/setup.sh            # setup is idempotent
+```
+
+The upgrade helper is deliberately operator-run over SSH, never part of the
+on-create script. Do not lower the gate instead: the CUDA smoke test will fail
+anyway, later and more expensively.
 
 The host `.venv` is API-only. Notebooks 02–05 must use the container Python.
 `ModuleNotFoundError: torch` in a GPU notebook means the wrong kernel, not that

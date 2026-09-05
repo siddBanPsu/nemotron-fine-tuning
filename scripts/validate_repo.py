@@ -16,6 +16,8 @@ REQUIRED = [
     "launchable/brev-launchable.yaml",
     "launchable/setup.sh",
     "launchable/container-entrypoint.sh",
+    "launchable/check_driver.sh",
+    "launchable/upgrade_driver.sh",
     "notebooks/01_cloud_api_baseline.ipynb",
     "notebooks/02_local_bf16_baseline.ipynb",
     "notebooks/03_nano9b_workshop_lora.ipynb",
@@ -49,7 +51,13 @@ def main() -> None:
                         f"Notebook outputs must be cleared before publishing: {path}:cell-{index}"
                     )
 
-    for path in (ROOT / "launchable/setup.sh", ROOT / "launchable/container-entrypoint.sh"):
+    shell_scripts = (
+        ROOT / "launchable/setup.sh",
+        ROOT / "launchable/container-entrypoint.sh",
+        ROOT / "launchable/check_driver.sh",
+        ROOT / "launchable/upgrade_driver.sh",
+    )
+    for path in shell_scripts:
         subprocess.run(["bash", "-n", str(path)], check=True)
 
     full_text = (ROOT / "notebooks/05_full_finetuning_design.ipynb").read_text(encoding="utf-8")

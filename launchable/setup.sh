@@ -7,6 +7,7 @@ MINIMUM_DRIVER_VERSION="${NEMOTRON_MINIMUM_DRIVER_VERSION:-580.65.06}"
 NATIVE_DRIVER_VERSION="610.43.02"
 JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
+DRIVER_WAIT_SECONDS="${NEMOTRON_DRIVER_WAIT_SECONDS:-300}"
 MODEL_PROFILE="${NEMOTRON_MODEL_PROFILE:-nano9b_workshop}"
 REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotron-fine-tuning.git}"
 REPOSITORY_REF="${NEMOTRON_REPOSITORY_REF:-main}"
@@ -70,6 +71,11 @@ case "${REPOSITORY_MODE}" in
     ;;
 esac
 
+if ! [[ "${DRIVER_WAIT_SECONDS}" =~ ^[0-9]+$ ]]; then
+  echo "NEMOTRON_DRIVER_WAIT_SECONDS must be a whole number of seconds; received '${DRIVER_WAIT_SECONDS}'." >&2
+  exit 1
+fi
+
 if ! [[ "${JUPYTER_PORT}" =~ ^[0-9]+$ ]] || (( JUPYTER_PORT < 1024 || JUPYTER_PORT > 65535 )); then
   echo "NEMOTRON_JUPYTER_PORT must be an unprivileged TCP port; received '${JUPYTER_PORT}'." >&2
   exit 1
@@ -107,6 +113,29 @@ def version_parts(value: str) -> tuple[int, ...]:
 actual, required = sys.argv[1:]
 raise SystemExit(0 if version_parts(actual) >= version_parts(required) else 1)
 PY
+}
+
+wait_for_nvidia_driver() {
+  local waited=0
+  local announced=0
+  while true; do
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+      if [ "${announced}" = "1" ]; then
+        echo "NVIDIA driver answered after ${waited}s."
+      fi
+      return 0
+    fi
+    if (( waited >= DRIVER_WAIT_SECONDS )); then
+      return 1
+    fi
+    if [ "${announced}" = "0" ]; then
+      echo "nvidia-smi is not answering yet. A freshly created VM often finishes installing or loading its GPU driver after the on-create script starts."
+      echo "Waiting up to ${DRIVER_WAIT_SECONDS}s; set NEMOTRON_DRIVER_WAIT_SECONDS to change this budget."
+      announced=1
+    fi
+    sleep 10
+    waited=$((waited + 10))
+  done
 }
 
 resolve_repository() {
@@ -176,6 +205,18 @@ if ! command -v docker >/dev/null 2>&1; then
       echo "Detected alternative runtime: ${ALTERNATIVE_RUNTIME}. This setup script does not invoke it." >&2
     fi
   done
+  exit 1
+fi
+if ! wait_for_nvidia_driver; then
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "nvidia-smi is not on PATH after ${DRIVER_WAIT_SECONDS}s, so this VM exposes no NVIDIA driver." >&2
+    echo "This lab does not install a GPU driver on create; select a Brev image that already ships one." >&2
+  else
+    echo "nvidia-smi is installed but could not talk to the driver within ${DRIVER_WAIT_SECONDS}s." >&2
+    echo "Run 'nvidia-smi' over SSH for the host-specific error before retrying setup." >&2
+    echo "A driver installed but not yet loaded usually needs a reboot, which the on-create script cannot perform." >&2
+  fi
+  echo "Screen the instance directly with 'bash launchable/check_driver.sh'." >&2
   exit 1
 fi
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv

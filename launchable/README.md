@@ -152,6 +152,30 @@ The host `.venv` deliberately contains no PyTorch. GPU notebooks must use the
 container kernel reached through port 8889; installing `torch` on the host does
 not repair a wrong-kernel problem.
 
+## When the Brev on-create service fails immediately
+
+`Job for instance-oneshot.service failed` means Brev's lifecycle unit exited
+non-zero; the reason is in the journal, not in the bootstrap output:
+
+```bash
+sudo journalctl -xeu instance-oneshot.service --no-pager | tail -100
+sudo systemctl status instance-oneshot.service --no-pager
+```
+
+A failure within seconds is usually one of: no GPU driver yet, Docker not
+ready, or a rejected launch parameter. The driver case is handled explicitly —
+setup waits up to `NEMOTRON_DRIVER_WAIT_SECONDS` (default 300) for `nvidia-smi`
+to answer, because a new VM often finishes loading its driver after the
+lifecycle service starts, then fails with a specific message rather than a bare
+crash.
+
+Setup is idempotent, so after fixing the cause you can rerun it over SSH
+without recreating the instance:
+
+```bash
+bash launchable/check_driver.sh && bash launchable/setup.sh
+```
+
 ## Credentials and runtime failures
 
 Prefer `NVIDIA_API_KEY` and optional `HF_TOKEN` in the process environment.

@@ -116,6 +116,13 @@ launch_parameters:
     description: >-
       Set to 1 before a scheduled workshop to download and convert the selected
       BF16 model; 0 opens the API notebook without waiting.
+  - name: NEMOTRON_DRIVER_WAIT_SECONDS
+    required: false
+    default: "300"
+    description: >-
+      Seconds the on-create script waits for nvidia-smi to answer before
+      failing. A freshly created VM often finishes loading its GPU driver after
+      the lifecycle service starts; the gate retries instead of crashing.
   - name: NEMOTRON_JUPYTER_PORT
     required: false
     default: "8889"

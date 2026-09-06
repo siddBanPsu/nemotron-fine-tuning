@@ -18,6 +18,7 @@ REQUIRED = [
     "launchable/container-entrypoint.sh",
     "launchable/check_driver.sh",
     "launchable/upgrade_driver.sh",
+    "launchable/cuda_smoke_test.py",
     "notebooks/01_cloud_api_baseline.ipynb",
     "notebooks/02_local_bf16_baseline.ipynb",
     "notebooks/03_nano9b_workshop_lora.ipynb",

@@ -66,21 +66,24 @@ class LaunchableTests(unittest.TestCase):
         self.assertLess(driver_check, container_pull)
         self.assertIn("NEMOTRON_MINIMUM_DRIVER_VERSION:-580.65.06", setup)
         self.assertIn('NATIVE_DRIVER_VERSION="610.43.02"', setup)
-        self.assertIn("VM-image compatibility failure", setup)
-        self.assertIn("driver 595.91.07", setup)
+        self.assertIn("check_driver.sh", setup)
+        self.assertIn("upgrade_driver.sh", setup)
         self.assertIn("driver 565.57.01", manifest)
         self.assertIn("RTX PRO 6000 Blackwell Server Edition 96 GB", manifest)
 
     def test_cuda_compatibility_is_proven_before_jupyter_starts(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
+        smoke = (ROOT / "launchable/cuda_smoke_test.py").read_text(encoding="utf-8")
         container_pull = setup.index('retry docker pull "${IMAGE}"')
-        cuda_smoke = setup.index("torch.cuda.is_available()")
+        cuda_smoke = setup.index("run_cuda_smoke_test() {")
         jupyter_container = setup.index("docker run --detach")
         self.assertLess(container_pull, cuda_smoke)
         self.assertLess(cuda_smoke, jupyter_container)
-        self.assertIn("torch.ones(1, device=device)", setup)
-        self.assertIn("Repository bind mount is unreadable", setup)
+        self.assertIn("torch.cuda.is_available()", smoke)
+        self.assertIn("torch.ones(1, device=device)", smoke)
+        self.assertIn("Repository bind mount is unreadable", smoke)
         self.assertIn("--ipc=host", setup)
+        self.assertIn("cuda_smoke_test.py", setup)
 
     def test_persistent_storage_can_use_a_large_vm_volume(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
@@ -117,8 +120,8 @@ class LaunchableTests(unittest.TestCase):
         self.assertIn("/usr/local/cuda/compat/lib.real", setup)
         # A passing compat retry must be inherited by the long-lived container.
         self.assertIn('${FORWARD_COMPAT_ARGS[@]+"${FORWARD_COMPAT_ARGS[@]}"}', setup)
-        # Compat cannot rescue a driver below the floor; the gate stays honest.
-        self.assertIn("still requires a base driver of 580 or newer", setup)
+        # Compat cannot rescue a driver below the floor; the gate refers to check_driver.sh.
+        self.assertIn("check_driver.sh", setup)
 
     def test_driver_recovery_tooling_is_documented_and_gated(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")

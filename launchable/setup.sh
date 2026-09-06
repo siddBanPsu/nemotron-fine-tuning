@@ -48,94 +48,61 @@ done
 
 case "${PREFETCH_MODEL}" in
   0|1) ;;
-  *)
-    echo "NEMOTRON_PREFETCH_MODEL must be 0 or 1; received '${PREFETCH_MODEL}'." >&2
-    exit 1
-    ;;
+  *) echo "NEMOTRON_PREFETCH_MODEL must be 0 or 1; received '${PREFETCH_MODEL}'." >&2; exit 1 ;;
 esac
 
 case "${MODEL_PROFILE}" in
   nano9b_workshop) DISK_GUIDANCE_GB=200 ;;
   lightning35_advanced) DISK_GUIDANCE_GB=300 ;;
-  *)
-    echo "NEMOTRON_MODEL_PROFILE must be nano9b_workshop or lightning35_advanced; received '${MODEL_PROFILE}'." >&2
-    exit 1
-    ;;
+  *) echo "NEMOTRON_MODEL_PROFILE must be nano9b_workshop or lightning35_advanced; received '${MODEL_PROFILE}'." >&2; exit 1 ;;
 esac
 echo "Selected model profile: ${MODEL_PROFILE}"
 
 case "${REPOSITORY_MODE}" in
   auto|local|bootstrap) ;;
-  *)
-    echo "NEMOTRON_REPOSITORY_MODE must be auto, local, or bootstrap; received '${REPOSITORY_MODE}'." >&2
-    exit 1
-    ;;
+  *) echo "NEMOTRON_REPOSITORY_MODE must be auto, local, or bootstrap; received '${REPOSITORY_MODE}'." >&2; exit 1 ;;
 esac
 
 if ! [[ "${DRIVER_WAIT_SECONDS}" =~ ^[0-9]+$ ]]; then
-  echo "NEMOTRON_DRIVER_WAIT_SECONDS must be a whole number of seconds; received '${DRIVER_WAIT_SECONDS}'." >&2
-  exit 1
+  echo "NEMOTRON_DRIVER_WAIT_SECONDS must be a whole number; received '${DRIVER_WAIT_SECONDS}'." >&2; exit 1
 fi
 
 if ! [[ "${JUPYTER_PORT}" =~ ^[0-9]+$ ]] || (( JUPYTER_PORT < 1024 || JUPYTER_PORT > 65535 )); then
-  echo "NEMOTRON_JUPYTER_PORT must be an unprivileged TCP port; received '${JUPYTER_PORT}'." >&2
-  exit 1
+  echo "NEMOTRON_JUPYTER_PORT must be an unprivileged TCP port; received '${JUPYTER_PORT}'." >&2; exit 1
 fi
 
 retry() {
-  local attempt=1
-  local maximum=4
-  local delay=5
+  local attempt=1 maximum=4 delay=5
   until "$@"; do
     if (( attempt >= maximum )); then
-      echo "Command failed after ${maximum} attempts: $*" >&2
-      return 1
+      echo "Command failed after ${maximum} attempts: $*" >&2; return 1
     fi
     echo "Attempt ${attempt} failed; retrying in ${delay}s..." >&2
-    sleep "${delay}"
-    attempt=$((attempt + 1))
-    delay=$((delay * 2))
+    sleep "${delay}"; attempt=$((attempt + 1)); delay=$((delay * 2))
   done
 }
 
 driver_version_at_least() {
-  python3 - "$1" "$2" <<'PY'
-import re
-import sys
-
-
-def version_parts(value: str) -> tuple[int, ...]:
-    parts = tuple(int(part) for part in re.findall(r"\d+", value))
-    if not parts:
-        raise ValueError(f"No numeric version found in {value!r}")
-    return parts
-
-
-actual, required = sys.argv[1:]
-raise SystemExit(0 if version_parts(actual) >= version_parts(required) else 1)
-PY
+  python3 -c "
+import re,sys
+v=lambda s:tuple(int(x) for x in re.findall(r'\d+',s))
+raise SystemExit(0 if v(sys.argv[1])>=v(sys.argv[2]) else 1)
+" "$1" "$2"
 }
 
 wait_for_nvidia_driver() {
-  local waited=0
-  local announced=0
+  local waited=0 announced=0
   while true; do
     if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-      if [ "${announced}" = "1" ]; then
-        echo "NVIDIA driver answered after ${waited}s."
-      fi
+      [ "${announced}" = "1" ] && echo "NVIDIA driver answered after ${waited}s."
       return 0
     fi
-    if (( waited >= DRIVER_WAIT_SECONDS )); then
-      return 1
-    fi
+    (( waited >= DRIVER_WAIT_SECONDS )) && return 1
     if [ "${announced}" = "0" ]; then
-      echo "nvidia-smi is not answering yet. A freshly created VM often finishes installing or loading its GPU driver after the on-create script starts."
-      echo "Waiting up to ${DRIVER_WAIT_SECONDS}s; set NEMOTRON_DRIVER_WAIT_SECONDS to change this budget."
+      echo "nvidia-smi not answering yet; waiting up to ${DRIVER_WAIT_SECONDS}s."
       announced=1
     fi
-    sleep 10
-    waited=$((waited + 10))
+    sleep 10; waited=$((waited + 10))
   done
 }
 
@@ -148,24 +115,22 @@ resolve_repository() {
     if [ -z "${DATA_ROOT}" ] || [[ "${LOCAL_REPOSITORY_DIR}" == "${DATA_ROOT}"/* ]]; then
       use_local=1
     else
-      echo "The local checkout is outside NEMOTRON_DATA_ROOT; staging a clean clone for Docker bind mounts."
+      echo "Local checkout is outside NEMOTRON_DATA_ROOT; staging a clean clone for Docker bind mounts."
     fi
   fi
 
   if [ "${use_local}" = "1" ]; then
     if [ ! -f "${LOCAL_REPOSITORY_DIR}/launchable/container-entrypoint.sh" ]; then
-      echo "NEMOTRON_REPOSITORY_MODE=local, but no repository surrounds this setup script." >&2
-      exit 1
+      echo "NEMOTRON_REPOSITORY_MODE=local, but no repository surrounds this setup script." >&2; exit 1
     fi
     REPOSITORY_DIR="${LOCAL_REPOSITORY_DIR}"
     echo "Using the repository that contains this setup script: ${REPOSITORY_DIR}"
     return
   fi
 
-  echo "The Brev lifecycle script is outside the checkout; bootstrapping ${REPOSITORY_URL}."
+  echo "Bootstrapping ${REPOSITORY_URL}."
   if [ -e "${BOOTSTRAP_REPOSITORY_DIR}" ] && [ ! -d "${BOOTSTRAP_REPOSITORY_DIR}/.git" ]; then
-    echo "Cannot bootstrap into ${BOOTSTRAP_REPOSITORY_DIR}: it exists but is not a Git checkout." >&2
-    exit 1
+    echo "Cannot bootstrap into ${BOOTSTRAP_REPOSITORY_DIR}: not a Git checkout." >&2; exit 1
   fi
   if [ ! -d "${BOOTSTRAP_REPOSITORY_DIR}/.git" ]; then
     mkdir -p "$(dirname "${BOOTSTRAP_REPOSITORY_DIR}")"
@@ -177,14 +142,11 @@ resolve_repository() {
   REPOSITORY_DIR="${BOOTSTRAP_REPOSITORY_DIR}"
 
   if [ ! -f "${REPOSITORY_DIR}/launchable/container-entrypoint.sh" ]; then
-    echo "Repository ref '${REPOSITORY_REF}' does not contain launchable/container-entrypoint.sh." >&2
-    exit 1
+    echo "Repository ref '${REPOSITORY_REF}' does not contain launchable/container-entrypoint.sh." >&2; exit 1
   fi
   echo "Using repository commit $(git -C "${REPOSITORY_DIR}" rev-parse HEAD)."
 }
 
-# Brev's Secure Link proxy reaches the instance over its tailnet address rather
-# than loopback, so a loopback-only publish is refused and the proxy returns 503.
 detect_secure_link_address() {
   local address=""
   if command -v tailscale >/dev/null 2>&1; then
@@ -197,104 +159,66 @@ detect_secure_link_address() {
   printf '%s' "${address}"
 }
 
-
 port_is_free() {
-  python3 - "${JUPYTER_PORT}" <<'PY'
-import socket
-import sys
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-    try:
-        listener.bind(("127.0.0.1", int(sys.argv[1])))
-    except OSError:
-        raise SystemExit(1)
-PY
+  python3 -c "
+import socket,sys
+s=socket.socket()
+try: s.bind(('127.0.0.1',int(sys.argv[1])))
+except OSError: raise SystemExit(1)
+" "${JUPYTER_PORT}"
 }
 
 echo "[1/7] Checking GPU, driver, and container runtime"
 if ! command -v docker >/dev/null 2>&1; then
-  echo "Docker is not installed or is not on PATH." >&2
-  echo "This standalone-VM path requires Docker Engine plus NVIDIA Container Toolkit." >&2
-  echo "Brev VM Mode provides both; on a managed cluster, ask the administrator which GPU container runtime is supported." >&2
-  for ALTERNATIVE_RUNTIME in apptainer singularity enroot podman nerdctl; do
-    if command -v "${ALTERNATIVE_RUNTIME}" >/dev/null 2>&1; then
-      echo "Detected alternative runtime: ${ALTERNATIVE_RUNTIME}. This setup script does not invoke it." >&2
-    fi
-  done
+  echo "Docker is not installed. This VM path requires Docker Engine and NVIDIA Container Toolkit." >&2
+  echo "Brev VM Mode provides both. For a standalone VM, install them first." >&2
   exit 1
 fi
 if ! wait_for_nvidia_driver; then
   if ! command -v nvidia-smi >/dev/null 2>&1; then
-    echo "nvidia-smi is not on PATH after ${DRIVER_WAIT_SECONDS}s, so this VM exposes no NVIDIA driver." >&2
-    echo "This lab does not install a GPU driver on create; select a Brev image that already ships one." >&2
+    echo "nvidia-smi is not on PATH after ${DRIVER_WAIT_SECONDS}s; no NVIDIA driver on this VM." >&2
   else
-    echo "nvidia-smi is installed but could not talk to the driver within ${DRIVER_WAIT_SECONDS}s." >&2
-    echo "Run 'nvidia-smi' over SSH for the host-specific error before retrying setup." >&2
-    echo "A driver installed but not yet loaded usually needs a reboot, which the on-create script cannot perform." >&2
+    echo "nvidia-smi installed but could not reach the driver within ${DRIVER_WAIT_SECONDS}s." >&2
   fi
-  echo "Screen the instance directly with 'bash launchable/check_driver.sh'." >&2
+  echo "Run 'bash launchable/check_driver.sh' for a detailed diagnosis." >&2
   exit 1
 fi
 nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version --format=csv
-# A while-read loop keeps this readable on hosts whose bash predates mapfile.
 DRIVER_VERSIONS=()
 while IFS= read -r REPORTED_VERSION; do
   [ -n "${REPORTED_VERSION}" ] && DRIVER_VERSIONS+=("${REPORTED_VERSION}")
 done < <(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits)
 if [ "${#DRIVER_VERSIONS[@]}" -eq 0 ]; then
-  echo "No NVIDIA driver version was reported by nvidia-smi." >&2
-  exit 1
+  echo "No NVIDIA driver version reported by nvidia-smi." >&2; exit 1
 fi
 for DRIVER_VERSION in "${DRIVER_VERSIONS[@]}"; do
   if ! driver_version_at_least "${DRIVER_VERSION}" "${MINIMUM_DRIVER_VERSION}"; then
-    echo "NVIDIA driver ${DRIVER_VERSION} is too old for ${IMAGE}." >&2
-    echo "CUDA 13.x minor-version compatibility requires driver ${MINIMUM_DRIVER_VERSION} or newer." >&2
-    echo "This is a VM-image compatibility failure, not an A100 memory or compute-capability failure." >&2
-    echo "The lifecycle script cannot replace the kernel driver: activating a new driver requires a VM reboot, which would fail this Brev on-create run." >&2
-    echo "Create a fresh Brev instance whose base image reports driver ${MINIMUM_DRIVER_VERSION}+; the setup stops before the large container pull." >&2
-    echo "NVIDIA's CUDA forward-compatibility package cannot close this gap: a CUDA 13.x compat package still requires a base driver of 580 or newer." >&2
-    echo "To upgrade this instance in place instead, run 'sudo bash launchable/upgrade_driver.sh', reboot, then re-run this setup script; it is idempotent." >&2
-    echo "To screen a candidate instance before provisioning the lab, run 'bash launchable/check_driver.sh'." >&2
-    echo "A Brev RTX PRO 6000 Blackwell Server Edition instance with driver 595.91.07 has passed this repository's container/CUDA startup gate." >&2
-    echo "An A100 instance is suitable only when its selected provider/base image also supplies driver ${MINIMUM_DRIVER_VERSION}+." >&2
-    echo "Do not substitute an older NeMo image: it is not the verified dependency stack for these training recipes." >&2
+    echo "NVIDIA driver ${DRIVER_VERSION} is too old; ${IMAGE} requires ${MINIMUM_DRIVER_VERSION}+." >&2
+    echo "Select a Brev image with driver ${MINIMUM_DRIVER_VERSION}+, or run 'sudo bash launchable/upgrade_driver.sh' and reboot." >&2
+    echo "Run 'bash launchable/check_driver.sh' for full guidance." >&2
     exit 1
   fi
   if ! driver_version_at_least "${DRIVER_VERSION}" "${NATIVE_DRIVER_VERSION}"; then
-    echo "Driver ${DRIVER_VERSION} will use documented CUDA 13.x minor-version compatibility."
-    echo "The container CUDA smoke test after the pull must pass before Jupyter starts."
+    echo "Driver ${DRIVER_VERSION}: using CUDA 13.x minor-version compatibility."
   fi
 done
-# A provisioning script that restarts Docker repeatedly can trip systemd's
-# start rate limiter, leaving the daemon briefly down or mid-restart. Wait
-# rather than failing a workshop instance that is about to become healthy.
 DOCKER_WAITED=0
 until docker info >/dev/null 2>&1; do
   if (( DOCKER_WAITED >= DRIVER_WAIT_SECONDS )); then
-    echo "Docker is installed, but the daemon stayed unavailable for ${DRIVER_WAIT_SECONDS}s or this user lacks access." >&2
-    echo "Run 'docker info' directly for the host-specific error before retrying setup." >&2
-    echo "If systemd reports 'start-limit-hit', the daemon was restarted too often; clear it with:" >&2
-    echo "  sudo systemctl reset-failed docker.service && sudo systemctl start docker.service" >&2
-    echo "Then confirm the configuration with 'sudo dockerd --validate --config-file /etc/docker/daemon.json'." >&2
+    echo "Docker daemon unavailable after ${DRIVER_WAIT_SECONDS}s. Run 'docker info' for the error." >&2
+    echo "If systemd shows start-limit-hit: sudo systemctl reset-failed docker && sudo systemctl start docker" >&2
     exit 1
   fi
-  if (( DOCKER_WAITED == 0 )); then
-    echo "The Docker daemon is not answering yet; waiting up to ${DRIVER_WAIT_SECONDS}s in case it is still restarting."
-  fi
-  sleep 5
-  DOCKER_WAITED=$((DOCKER_WAITED + 5))
+  (( DOCKER_WAITED == 0 )) && echo "Docker daemon not yet answering; waiting up to ${DRIVER_WAIT_SECONDS}s."
+  sleep 5; DOCKER_WAITED=$((DOCKER_WAITED + 5))
 done
-if (( DOCKER_WAITED > 0 )); then
-  echo "Docker daemon answered after ${DOCKER_WAITED}s."
-fi
+(( DOCKER_WAITED > 0 )) && echo "Docker daemon answered after ${DOCKER_WAITED}s."
 if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   echo "Replacing existing ${CONTAINER_NAME} container"
   docker rm -f "${CONTAINER_NAME}" >/dev/null
 fi
 if ! port_is_free; then
-  echo "Host port 127.0.0.1:${JUPYTER_PORT} is already in use." >&2
-  echo "Set NEMOTRON_JUPYTER_PORT to a free port and configure the Brev Secure Link to the same port." >&2
-  exit 1
+  echo "Port 127.0.0.1:${JUPYTER_PORT} is in use. Set NEMOTRON_JUPYTER_PORT to a free port." >&2; exit 1
 fi
 
 echo "[2/7] Resolving the versioned repository"
@@ -305,85 +229,44 @@ if [ -z "${ARTIFACTS_DIR}" ]; then
 fi
 case "${ARTIFACTS_DIR}" in
   /*) ;;
-  *)
-    echo "NEMOTRON_ARTIFACTS_DIR must be absolute; received '${ARTIFACTS_DIR}'." >&2
-    exit 1
-    ;;
+  *) echo "NEMOTRON_ARTIFACTS_DIR must be absolute; received '${ARTIFACTS_DIR}'." >&2; exit 1 ;;
 esac
 
 echo "[3/7] Preparing persistent model/checkpoint storage"
-if ! mkdir -p \
-  "${STORAGE_DIR}" "${HF_CACHE_DIR}" "${ARTIFACTS_DIR}" "${CACHE_DIR}" "${TEMP_DIR}"; then
-  echo "Could not create persistent storage. The selected filesystem may be full." >&2
-  echo "Set NEMOTRON_DATA_ROOT to an absolute path on a volume with roughly ${DISK_GUIDANCE_GB} GB available." >&2
+if ! mkdir -p "${STORAGE_DIR}" "${HF_CACHE_DIR}" "${ARTIFACTS_DIR}" "${CACHE_DIR}" "${TEMP_DIR}"; then
+  echo "Could not create storage; volume may be full. Set NEMOTRON_DATA_ROOT (need ~${DISK_GUIDANCE_GB} GB)." >&2
   exit 1
 fi
-echo "Checkpoint storage: ${STORAGE_DIR}"
-echo "Hugging Face cache: ${HF_CACHE_DIR}"
-echo "Notebook artifacts: ${ARTIFACTS_DIR}"
-echo "Runtime cache: ${CACHE_DIR}"
-echo "Temporary files: ${TEMP_DIR}"
-df -h \
-  "${STORAGE_DIR}" "${HF_CACHE_DIR}" "${ARTIFACTS_DIR}" "${CACHE_DIR}" "${TEMP_DIR}" \
+echo "Storage: ${STORAGE_DIR}  HF cache: ${HF_CACHE_DIR}  Artifacts: ${ARTIFACTS_DIR}"
+df -h "${STORAGE_DIR}" "${HF_CACHE_DIR}" "${ARTIFACTS_DIR}" "${CACHE_DIR}" "${TEMP_DIR}" \
   | awk 'NR == 1 || !seen[$1]++'
 
 echo "[4/7] Pulling the pinned NeMo container"
 retry docker pull "${IMAGE}"
 
-CUDA_SMOKE_TEST_PY="$(cat <<'SMOKE'
-from pathlib import Path
-
-import torch
-
-entrypoint = Path("/workspace/launchable/launchable/container-entrypoint.sh")
-if not entrypoint.is_file():
-    raise RuntimeError(f"Repository bind mount is unreadable: {entrypoint}")
-if not torch.cuda.is_available():
-    raise RuntimeError("PyTorch cannot initialize CUDA inside the NeMo container.")
-for index in range(torch.cuda.device_count()):
-    device = torch.device(f"cuda:{index}")
-    value = (torch.ones(1, device=device) + 1).item()
-    if value != 2:
-        raise RuntimeError(f"CUDA arithmetic smoke test failed on {device}: {value}")
-    torch.cuda.synchronize(device)
-print(
-    f"CUDA smoke test passed on {torch.cuda.device_count()} GPU(s): "
-    f"{torch.cuda.get_device_name(0)}"
-)
-SMOKE
-)"
-
-# NGC images normally activate the CUDA forward-compatibility libraries by
-# themselves when the host driver is older than the container's CUDA build.
-# That activation is known to be skipped on some hosts, so retry once with the
-# compat loader path made explicit before declaring the instance unusable.
 FORWARD_COMPAT_LIBRARY_PATH="/usr/local/cuda/compat/lib.real:/usr/local/cuda/compat:/usr/local/nvidia/lib64:/usr/local/nvidia/lib"
 FORWARD_COMPAT_ARGS=()
 
 run_cuda_smoke_test() {
-  printf '%s\n' "${CUDA_SMOKE_TEST_PY}" | docker run --rm \
-    --gpus all \
-    --ipc=host \
-    --ulimit memlock=-1 \
-    --ulimit stack=67108864 \
+  docker run --rm \
+    --gpus all --ipc=host \
+    --ulimit memlock=-1 --ulimit stack=67108864 \
     -v "${REPOSITORY_DIR}:/workspace/launchable:ro" \
-    "$@" \
-    --interactive "${IMAGE}" python -
+    "$@" "${IMAGE}" \
+    python /workspace/launchable/launchable/cuda_smoke_test.py
 }
 
 echo "[5/7] Validating the repository mount and CUDA inside the pinned container"
 if run_cuda_smoke_test; then
-  echo "CUDA started with the container's default library configuration."
+  echo "CUDA started with default library configuration."
 else
-  echo "Default CUDA initialization failed; retrying with the CUDA forward-compatibility libraries explicit on the loader path." >&2
+  echo "Default CUDA init failed; retrying with explicit forward-compatibility path." >&2
   FORWARD_COMPAT_ARGS=(-e "LD_LIBRARY_PATH=${FORWARD_COMPAT_LIBRARY_PATH}")
   if run_cuda_smoke_test "${FORWARD_COMPAT_ARGS[@]}"; then
-    echo "CUDA started only with explicit forward compatibility; the Jupyter container will inherit that loader path."
+    echo "CUDA started with explicit forward compatibility; Jupyter container will inherit that path."
   else
     FORWARD_COMPAT_ARGS=()
-    echo "CUDA cannot initialize in ${IMAGE} on this host, with or without explicit forward compatibility." >&2
-    echo "Forward compatibility cannot rescue a base driver below ${MINIMUM_DRIVER_VERSION}, and it applies only to data-center GPUs and select NGC-Server-Ready RTX SKUs." >&2
-    echo "Re-run 'bash launchable/check_driver.sh' for the host verdict, then either recreate the instance from a ${MINIMUM_DRIVER_VERSION}+ image or run 'sudo bash launchable/upgrade_driver.sh' and reboot." >&2
+    echo "CUDA cannot initialize in ${IMAGE}. Run 'bash launchable/check_driver.sh' and recreate the instance with driver ${MINIMUM_DRIVER_VERSION}+." >&2
     exit 1
   fi
 fi
@@ -393,8 +276,7 @@ if [ "${BIND_ADDRESS}" = "auto" ]; then
   if [ -n "${BIND_ADDRESS}" ]; then
     echo "Detected instance address ${BIND_ADDRESS}; publishing Jupyter there so the Brev Secure Link proxy can reach it."
   else
-    echo "No tailnet address was detected; publishing on loopback only." >&2
-    echo "A Brev Secure Link will return 503 until NEMOTRON_JUPYTER_BIND_ADDRESS names a reachable address." >&2
+    echo "No tailnet address detected; publishing on loopback only. A Brev Secure Link will return 503." >&2
   fi
 fi
 case "${BIND_ADDRESS}" in
@@ -449,18 +331,12 @@ docker run --detach \
 
 echo "[7/7] Waiting for Jupyter readiness"
 for _ in $(seq 1 1080); do
-  if curl --fail --silent \
-    "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
-    echo "Ready: Jupyter is listening on VM loopback port ${JUPYTER_PORT}."
-    if [ -n "${BIND_ADDRESS}" ]; then
-      echo "Also published on ${BIND_ADDRESS}:${JUPYTER_PORT} for the Secure Link proxy."
-    fi
-    echo "Brev: open the authenticated Secure Link configured for port ${JUPYTER_PORT}."
-    echo "Standalone VM: from your workstation run:"
-    echo "  ssh -N -L ${JUPYTER_PORT}:127.0.0.1:${JUPYTER_PORT} USER@VM_HOST"
-    echo "Then open:"
-    echo "  http://127.0.0.1:${JUPYTER_PORT}/lab/tree/notebooks/01_cloud_api_baseline.ipynb"
-    echo "Landing notebook: notebooks/01_cloud_api_baseline.ipynb"
+  if curl --fail --silent "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
+    echo "Ready: Jupyter is on port ${JUPYTER_PORT}."
+    [ -n "${BIND_ADDRESS}" ] && echo "Also published on ${BIND_ADDRESS}:${JUPYTER_PORT} for the Secure Link proxy."
+    echo "Brev: open the Secure Link for port ${JUPYTER_PORT}."
+    echo "SSH tunnel: ssh -N -L ${JUPYTER_PORT}:127.0.0.1:${JUPYTER_PORT} USER@VM_HOST"
+    echo "Then open: http://127.0.0.1:${JUPYTER_PORT}/lab/tree/notebooks/01_cloud_api_baseline.ipynb"
     exit 0
   fi
   if ! docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then

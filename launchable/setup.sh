@@ -8,7 +8,6 @@ NATIVE_DRIVER_VERSION="610.43.02"
 JUPYTER_PORT="${NEMOTRON_JUPYTER_PORT:-8889}"
 PREFETCH_MODEL="${NEMOTRON_PREFETCH_MODEL:-0}"
 DRIVER_WAIT_SECONDS="${NEMOTRON_DRIVER_WAIT_SECONDS:-300}"
-BIND_ADDRESS="${NEMOTRON_JUPYTER_BIND_ADDRESS:-auto}"
 MODEL_PROFILE="${NEMOTRON_MODEL_PROFILE:-nano9b_workshop}"
 REPOSITORY_URL="${NEMOTRON_REPOSITORY_URL:-https://github.com/siddBanPsu/nemotron-fine-tuning.git}"
 REPOSITORY_REF="${NEMOTRON_REPOSITORY_REF:-main}"
@@ -147,17 +146,6 @@ resolve_repository() {
   echo "Using repository commit $(git -C "${REPOSITORY_DIR}" rev-parse HEAD)."
 }
 
-detect_secure_link_address() {
-  local address=""
-  if command -v tailscale >/dev/null 2>&1; then
-    address="$(tailscale ip -4 2>/dev/null | head -n 1)"
-  fi
-  if [ -z "${address}" ] && command -v ip >/dev/null 2>&1; then
-    address="$(ip -4 -o addr show scope global 2>/dev/null \
-      | awk '{print $4}' | cut -d/ -f1 | grep '^100\.' | head -n 1)"
-  fi
-  printf '%s' "${address}"
-}
 
 port_is_free() {
   python3 -c "
@@ -271,32 +259,16 @@ else
   fi
 fi
 
-if [ "${BIND_ADDRESS}" = "auto" ]; then
-  BIND_ADDRESS="$(detect_secure_link_address)"
-  if [ -n "${BIND_ADDRESS}" ]; then
-    echo "Detected instance address ${BIND_ADDRESS}; publishing Jupyter there so the Brev Secure Link proxy can reach it."
-  else
-    echo "No tailnet address detected; publishing on loopback only. A Brev Secure Link will return 503." >&2
-  fi
-fi
-case "${BIND_ADDRESS}" in
-  127.0.0.1|localhost|loopback) BIND_ADDRESS="" ;;
-esac
-
-PUBLISH_ARGS=(-p "127.0.0.1:${JUPYTER_PORT}:8888")
-if [ -n "${BIND_ADDRESS}" ]; then
-  PUBLISH_ARGS+=(-p "${BIND_ADDRESS}:${JUPYTER_PORT}:8888")
-fi
-
 echo "[6/7] Starting the isolated Jupyter lab container"
 docker run --detach \
   --name "${CONTAINER_NAME}" \
   --gpus all \
+  --network host \
   --ipc=host \
   --shm-size=64g \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
-  "${PUBLISH_ARGS[@]}" \
+  -e "NEMOTRON_JUPYTER_PORT=${JUPYTER_PORT}" \
   -e "NEMOTRON_PREFETCH_MODEL=${PREFETCH_MODEL}" \
   -e "NEMOTRON_MODEL_PROFILE=${MODEL_PROFILE}" \
   -e "NEMOTRON_ARTIFACTS_DIR=/workspace/launchable/artifacts" \
@@ -332,8 +304,7 @@ docker run --detach \
 echo "[7/7] Waiting for Jupyter readiness"
 for _ in $(seq 1 1080); do
   if curl --fail --silent "http://127.0.0.1:${JUPYTER_PORT}/api" >/dev/null; then
-    echo "Ready: Jupyter is on port ${JUPYTER_PORT}."
-    [ -n "${BIND_ADDRESS}" ] && echo "Also published on ${BIND_ADDRESS}:${JUPYTER_PORT} for the Secure Link proxy."
+    echo "Ready: Jupyter is on port ${JUPYTER_PORT} (host network)."
     echo "Brev: open the Secure Link for port ${JUPYTER_PORT}."
     echo "SSH tunnel: ssh -N -L ${JUPYTER_PORT}:127.0.0.1:${JUPYTER_PORT} USER@VM_HOST"
     echo "Then open: http://127.0.0.1:${JUPYTER_PORT}/lab/tree/notebooks/01_cloud_api_baseline.ipynb"

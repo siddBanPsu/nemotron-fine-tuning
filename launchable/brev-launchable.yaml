@@ -97,8 +97,8 @@ software:
 network:
   jupyter_authentication: >-
     Jupyter runs tokenless; authentication is handled by Brev's Secure Link
-    (Pomerium SSO). The lab is published on both loopback and the instance's
-    tailnet address so the proxy can reach it.
+    (Pomerium SSO). The container uses host networking so no Docker NAT
+    conflicts with Tailscale iptables rules.
   secure_links:
     - name: jupyter
       port: 8889
@@ -127,13 +127,6 @@ launch_parameters:
       Seconds the on-create script waits for nvidia-smi to answer before
       failing. A freshly created VM often finishes loading its GPU driver after
       the lifecycle service starts; the gate retries instead of crashing.
-  - name: NEMOTRON_JUPYTER_BIND_ADDRESS
-    required: false
-    default: auto
-    description: >-
-      Address the Jupyter port is published on in addition to loopback. Auto
-      detects the instance's tailnet address, which is what the Brev Secure
-      Link proxy dials; a loopback-only publish makes that proxy return 503.
   - name: NEMOTRON_JUPYTER_PORT
     required: false
     default: "8889"

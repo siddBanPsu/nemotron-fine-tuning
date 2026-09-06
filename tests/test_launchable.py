@@ -139,13 +139,15 @@ class LaunchableTests(unittest.TestCase):
         self.assertNotIn("docker pull", probe)
         self.assertNotIn("pip install", probe)
 
-    def test_secure_link_publish_covers_tailnet_address(self):
+    def test_secure_link_reaches_jupyter_via_host_network(self):
         setup = (ROOT / "launchable/setup.sh").read_text(encoding="utf-8")
         entrypoint = (ROOT / "launchable/container-entrypoint.sh").read_text(encoding="utf-8")
-        # Loopback is always published, so SSH tunnels keep working.
-        self.assertIn('PUBLISH_ARGS=(-p "127.0.0.1:${JUPYTER_PORT}:8888")', setup)
-        # Tailnet address is also published so the Brev Secure Link proxy can reach it.
-        self.assertIn('PUBLISH_ARGS+=(-p "${BIND_ADDRESS}:${JUPYTER_PORT}:8888")', setup)
+        # Host network eliminates Docker NAT/iptables conflicts with Tailscale.
+        self.assertIn("--network host", setup)
+        self.assertNotIn("PUBLISH_ARGS", setup)
+        self.assertNotIn("BIND_ADDRESS", setup)
+        # Container Jupyter binds on the configured port, not hardcoded 8888.
+        self.assertIn('--port="${NEMOTRON_JUPYTER_PORT:-8889}"', entrypoint)
         # Jupyter is tokenless; Brev's Pomerium SSO handles authentication.
         self.assertIn("--ServerApp.token=''", entrypoint)
         self.assertNotIn("generate_jupyter_token", setup)
@@ -155,8 +157,8 @@ class LaunchableTests(unittest.TestCase):
         docker_command_check = setup.index("command -v docker")
         docker_first_use = setup.index("docker info")
         self.assertLess(docker_command_check, docker_first_use)
-        self.assertIn("Docker Engine plus NVIDIA Container Toolkit", setup)
-        self.assertIn("apptainer singularity enroot podman nerdctl", setup)
+        self.assertIn("Docker Engine", setup)
+        self.assertIn("NVIDIA Container Toolkit", setup)
 
 
 if __name__ == "__main__":

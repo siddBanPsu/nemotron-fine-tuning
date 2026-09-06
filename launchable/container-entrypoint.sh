@@ -99,7 +99,7 @@ echo "[container 6/6] Starting JupyterLab"
 exec jupyter lab \
   --allow-root \
   --ip=0.0.0.0 \
-  --port=8888 \
+  --port="${NEMOTRON_JUPYTER_PORT:-8889}" \
   --no-browser \
   --ServerApp.root_dir=/workspace/launchable \
   --ServerApp.default_url=/lab/tree/notebooks/01_cloud_api_baseline.ipynb \
